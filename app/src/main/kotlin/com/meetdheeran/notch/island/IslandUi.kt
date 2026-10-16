@@ -161,6 +161,7 @@ fun IslandUi(
         state.showFace -> Mode.FACE
         state.showUnlock -> Mode.UNLOCK
         state.quick -> Mode.QUICK
+        state.showBuds -> Mode.BUDS
         state.expanded && state.media != null -> Mode.EXPANDED
         act?.kind == LiveActivity.Kind.CALL -> Mode.CALL
         state.showPeek -> Mode.PEEK
@@ -185,11 +186,12 @@ fun IslandUi(
         when (m) {
             Mode.EMPTY -> base; Mode.MEDIA -> base + 64.dp; Mode.CHARGING -> base + 150.dp; Mode.CHARGE_LIVE -> base + 100.dp
             Mode.PROGRESS -> base + 120.dp; Mode.EVENT -> base + 124.dp; Mode.CALL, Mode.ACTIVITY -> base + 100.dp
-            Mode.PEEK -> 340.dp; Mode.UNLOCK, Mode.FACE -> base + 12.dp; Mode.EXPANDED -> 360.dp; Mode.QUICK -> 336.dp
+            Mode.PEEK -> 340.dp; Mode.UNLOCK, Mode.FACE -> base + 12.dp; Mode.EXPANDED -> 360.dp; Mode.QUICK -> 336.dp; Mode.BUDS -> 340.dp
         },
         when (m) {
             Mode.EXPANDED -> 86.dp + cam
             Mode.QUICK -> if (tab) cam + 204.dp else baseH + 192.dp
+            Mode.BUDS -> if (tab) cam + 132.dp else baseH + 120.dp
             Mode.UNLOCK, Mode.FACE -> if (tab) cam + 52.dp else baseH + 34.dp
             Mode.CHARGING -> if (tab) cam + 36.dp else baseH + 6.dp
             Mode.PEEK -> if (tab) cam + 58.dp else baseH + 22.dp
@@ -226,7 +228,7 @@ fun IslandUi(
     // Room for the falling drop below the island while it drips.
     val spanH = maxOf(hold[1].dp, if (dripMode && drip.value < 1f) cam + 44.dp else 0.dp)
     val dx = (spanW - w) / 2
-    val big = mode == Mode.EXPANDED || mode == Mode.QUICK
+    val big = mode == Mode.EXPANDED || mode == Mode.QUICK || mode == Mode.BUDS
     val corner by animateDpAsState(when { big -> 32.dp; mode == Mode.UNLOCK || mode == Mode.FACE -> 26.dp; else -> baseH / 2 }, islandSpring, label = "corner")
     // The tab is flush with the screen's top edge: square on top, rounded below.
     val shape = if (tab) RoundedCornerShape(0.dp, 0.dp, corner, corner) else RoundedCornerShape(corner)
@@ -267,7 +269,7 @@ fun IslandUi(
     // (a "metaball"), so while they're close a liquid neck stretches between them and then snaps.
     val bubbles: List<Live> = when {
         !state.split -> emptyList()
-        mode == Mode.EXPANDED || mode == Mode.QUICK || mode == Mode.EMPTY || mode == Mode.UNLOCK || mode == Mode.FACE -> emptyList()
+        mode == Mode.EXPANDED || mode == Mode.QUICK || mode == Mode.BUDS || mode == Mode.EMPTY || mode == Mode.UNLOCK || mode == Mode.FACE -> emptyList()
         mode == Mode.MEDIA || mode == Mode.CALL || mode == Mode.ACTIVITY || mode == Mode.PROGRESS || mode == Mode.CHARGE_LIVE -> items.filter { it != current }.take(2)
         else -> items.take(2)
     }
@@ -558,6 +560,7 @@ private fun PillBody(
                         Mode.FACE -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { FaceScanGlyph(state.face) }
                         Mode.PEEK -> state.peek?.let { if (state.notch) PeekCard(it) else PeekRow(it) }
                         Mode.QUICK -> QuickPanel(state.quickStates, state.prism, onQuickTile, onQuickHold)
+                        Mode.BUDS -> state.buds?.let { BudsCard(it, state.budsName, state.budsPicture) }
                     }
                 }
             }
@@ -565,7 +568,7 @@ private fun PillBody(
     }
 }
 
-private enum class Mode { EMPTY, MEDIA, CHARGING, CHARGE_LIVE, EVENT, CALL, ACTIVITY, PROGRESS, EXPANDED, PEEK, UNLOCK, FACE, QUICK }
+private enum class Mode { EMPTY, MEDIA, CHARGING, CHARGE_LIVE, EVENT, CALL, ACTIVITY, PROGRESS, EXPANDED, PEEK, UNLOCK, FACE, QUICK, BUDS }
 
 /** The island is black in every theme, so its colours are fixed; the accent is the phone's own. */
 private object Ink {
@@ -1333,5 +1336,73 @@ private fun QuickTileView(t: QuickTile, on: Boolean, modifier: Modifier, onClick
         }
         Spacer(Modifier.height(6.dp))
         Text(t.label, style = IslandType.small, color = if (on) Color.White else Ink.secondary, maxLines = 1)
+    }
+}
+
+
+/**
+ * The earbuds card, AirPods-style: their picture (the person's own, or a drawing), their name, and a ring each for
+ * left, right and the case — filled to the level, with a bolt when charging.
+ */
+@Composable
+private fun BudsCard(b: com.meetdheeran.notch.buds.BudsBattery, name: String, picture: Bitmap?) {
+    Row(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(96.dp).clip(RoundedCornerShape(Oos.TILE_RADIUS.dp)).background(Color(0xFF1C1C1E)), contentAlignment = Alignment.Center) {
+            if (picture != null) Image(picture.asImageBitmap(), name, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            else BudsDrawing(Modifier.size(72.dp))
+        }
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(name, style = IslandType.title, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                BudsRing("L", b.left, b.leftCharging)
+                BudsRing("R", b.right, b.rightCharging)
+                BudsRing("Case", b.case, b.caseCharging)
+            }
+        }
+    }
+}
+
+@Composable
+private fun BudsRing(label: String, level: Int?, charging: Boolean) {
+    val fill by animateFloatAsState((level ?: 0) / 100f, tween(700, easing = FastOutSlowInEasing), label = "budsRing")
+    val color = when {
+        level == null -> Ink.tertiary
+        charging -> Ink.good
+        level <= 15 -> Ink.bad
+        else -> Color.White
+    }
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.size(46.dp), contentAlignment = Alignment.Center) {
+            Canvas(Modifier.fillMaxSize()) {
+                val sw = 4.dp.toPx()
+                val inset = sw / 2
+                val arc = Size(size.width - sw, size.height - sw)
+                drawArc(Color.White.copy(alpha = 0.16f), 0f, 360f, false, Offset(inset, inset), arc, style = androidx.compose.ui.graphics.drawscope.Stroke(sw))
+                if (level != null) drawArc(color, -90f, 360f * fill, false, Offset(inset, inset), arc, style = androidx.compose.ui.graphics.drawscope.Stroke(sw, cap = StrokeCap.Round))
+            }
+            if (charging) Icon(Icons.Rounded.Bolt, null, tint = Ink.good, modifier = Modifier.size(14.dp).offset(y = (-9).dp))
+            Text(level?.let { "$it" } ?: "\u2013", style = IslandType.label, color = Color.White, modifier = Modifier.offset(y = if (charging) 5.dp else 0.dp))
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(label, style = IslandType.small, color = Ink.secondary)
+    }
+}
+
+/** Until a picture is chosen: two buds standing in an open case, drawn plainly in white and greys. */
+@Composable
+private fun BudsDrawing(modifier: Modifier) {
+    Canvas(modifier) {
+        val w = size.width; val h = size.height
+        // The case: a rounded, slightly squat pill, its lid line across the top third.
+        drawRoundRect(Color(0xFF3A3A3C), Offset(w * 0.08f, h * 0.42f), Size(w * 0.84f, h * 0.5f), CornerRadius(w * 0.2f))
+        drawLine(Color(0xFF1C1C1E), Offset(w * 0.12f, h * 0.56f), Offset(w * 0.88f, h * 0.56f), w * 0.02f)
+        // Two buds: a round head and a short stem each.
+        for (cx in listOf(w * 0.34f, w * 0.66f)) {
+            drawRoundRect(Color(0xFFE5E5EA), Offset(cx - w * 0.06f, h * 0.24f), Size(w * 0.12f, h * 0.3f), CornerRadius(w * 0.06f))
+            drawCircle(Color.White, w * 0.11f, Offset(cx, h * 0.2f))
+            drawCircle(Color(0xFF2C2C2E), w * 0.04f, Offset(cx, h * 0.2f))
+        }
     }
 }

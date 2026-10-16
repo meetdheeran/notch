@@ -29,8 +29,10 @@ data class BudsBattery(
  * bits 0–6 = level (0x7F = unknown). Only adverts from close by (strong signal) count, so the neighbour's buds don't
  * pop up. Needs BLUETOOTH_SCAN (declared neverForLocation).
  *
- * TEST STAGE (2026-10-16): every Fast Pair advert heard is also logged raw (tag NotchBuds), to learn exactly what the
- * CMF Buds Pro 2 send before the card is built.
+ * Measured with Dheer's CMF Buds Pro 2 (2026-10-16): with the case open they advertise every ~0.3 s, e.g.
+ * `00 70 7b1240505419 5a 11 09 34 64 64 37` → battery field 0x34 (len 3) = left 100, right 100, case 55; a 0xff
+ * byte (bud out of the case) reads as unknown. They go quiet when the case closes, so the first advert after a gap is
+ * "the case just opened" ([opened]).
  */
 object BudsScanner {
     private const val TAG = "NotchBuds"
@@ -40,6 +42,12 @@ object BudsScanner {
 
     private val _battery = MutableStateFlow<BudsBattery?>(null)
     val battery: StateFlow<BudsBattery?> = _battery
+
+    /** elapsedRealtime of the last "case opened" — the first nearby advert after [GAP_MS] of quiet. */
+    private val _opened = MutableStateFlow(0L)
+    val opened: StateFlow<Long> = _opened
+    private var lastHeard = 0L
+    private const val GAP_MS = 8_000L
 
     private var scanning = false
 
@@ -67,12 +75,19 @@ object BudsScanner {
     private val callback = object : ScanCallback() {
         override fun onScanResult(type: Int, result: ScanResult) {
             val data = result.scanRecord?.getServiceData(FAST_PAIR) ?: return
-            Log.d(TAG, "advert rssi=${result.rssi} addr=${result.device.address} data=${data.hex()}")
             if (result.rssi < NEAR_RSSI) return
-            BudsAdvert.parse(data)?.let {
-                Log.d(TAG, "battery L=${it.left} R=${it.right} case=${it.case}")
-                _battery.value = it.copy(at = SystemClock.elapsedRealtime())
+            val b = BudsAdvert.parse(data) ?: return
+            val now = SystemClock.elapsedRealtime()
+            // Keep the last known level when one bud briefly reads "unknown" (lifted out of the case).
+            val last = _battery.value
+            _battery.value = b.copy(
+                left = b.left ?: last?.left, right = b.right ?: last?.right, case = b.case ?: last?.case, at = now,
+            )
+            if (now - lastHeard > GAP_MS) {
+                Log.d(TAG, "case opened: L=${b.left} R=${b.right} case=${b.case}")
+                _opened.value = now
             }
+            lastHeard = now
         }
 
         override fun onScanFailed(errorCode: Int) {
@@ -81,7 +96,6 @@ object BudsScanner {
         }
     }
 
-    private fun ByteArray.hex() = joinToString("") { "%02x".format(it) }
 }
 
 /** Reading a Fast Pair advert. Pure (no Android classes), so it's unit-tested. */

@@ -27,6 +27,8 @@ import com.meetdheeran.notch.core.Settings
 import com.meetdheeran.notch.overlay.BackgroundNotice
 import com.meetdheeran.notch.overlay.OverlayHost
 import com.meetdheeran.notch.quick.QuickActions
+import com.meetdheeran.notch.buds.BudsBattery
+import com.meetdheeran.notch.buds.BudsPicture
 import com.meetdheeran.notch.buds.BudsScanner
 import com.meetdheeran.notch.quick.QuickStates
 import com.meetdheeran.notch.quick.QuickTile
@@ -42,6 +44,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+
+/** How long the buds card stays up after the case opens. */
+const val BUDS_MS = 6_000L
 
 data class BatteryInfo(val percent: Int = -1, val charging: Boolean = false)
 
@@ -98,19 +103,25 @@ data class IslandState(
     val tick: Long = 0L,
     /** The quick actions panel is open (tap the idle island), and what its switches show. */
     val quick: Boolean = false,
+    /** The earbuds card (case opened): their battery, name and picture, and when it opened (elapsedRealtime). */
+    val buds: BudsBattery? = null,
+    val budsAt: Long = 0L,
+    val budsName: String = "Earbuds",
+    val budsPicture: android.graphics.Bitmap? = null,
     val quickStates: QuickStates = QuickStates(),
     val prism: Boolean = false,
 ) {
     val showChargeBloom: Boolean get() = chargedAt > 0 && SystemClock.elapsedRealtime() - chargedAt < 3_000
     val showEvent: Boolean get() = event != null && SystemClock.elapsedRealtime() - event.at < 3_500
     val showPeek: Boolean get() = peek != null && SystemClock.elapsedRealtime() - peekAt < 3_500
+    val showBuds: Boolean get() = buds != null && budsAt > 0 && SystemClock.elapsedRealtime() - budsAt < BUDS_MS
     val showUnlock: Boolean get() = unlockAt > 0 && SystemClock.elapsedRealtime() - unlockAt < 1_700
     /** Scanning shows until the vault says otherwise (12 s at most); ok / fail for a moment. */
     val showFace: Boolean get() = face != FaceScan.OFF &&
         SystemClock.elapsedRealtime() - faceAt < (if (face == FaceScan.SCANNING) 12_000 else 1_400)
     /** Cards that close when you tap anywhere else on the screen. */
     val wantsOutsideTaps: Boolean get() = expanded || quick
-    val hasContent: Boolean get() = (notch && !landscape) || quick || activities.isNotEmpty() || chargingLive || showFace || showUnlock ||
+    val hasContent: Boolean get() = (notch && !landscape) || quick || showBuds || activities.isNotEmpty() || chargingLive || showFace || showUnlock ||
         media != null || activity != null || showChargeBloom || showEvent || showPeek
 }
 
@@ -179,6 +190,21 @@ class IslandService : Service() {
         MediaWatcher.start(this)
         QuickActions.start(this)
         BudsScanner.start(this)
+        // The case opened: the buds card drops out of the notch for a few seconds; battery updates keep it current.
+        scope.launch {
+            BudsScanner.opened.collect { at ->
+                if (at == 0L || !lastSettings.showEarbuds) return@collect
+                state.value = state.value.copy(
+                    buds = BudsScanner.battery.value, budsAt = at, budsName = budsName(), budsPicture = BudsPicture.get(this@IslandService),
+                )
+                sync()
+                Haptics.click(this@IslandService)
+                delay(BUDS_MS + 100)
+                state.value = state.value.copy(tick = SystemClock.elapsedRealtime())
+                sync()
+            }
+        }
+        scope.launch { BudsScanner.battery.collect { b -> if (state.value.showBuds) state.value = state.value.copy(buds = b) } }
         scope.launch { QuickActions.states.collect { q -> state.value = state.value.copy(quickStates = q) } }
         val ch = charging!!
         // Low battery: one pop when crossing 15% while unplugged.
@@ -274,6 +300,10 @@ class IslandService : Service() {
                     landscape = state.value.landscape,
                     focusKey = state.value.focusKey,
                     quick = state.value.quick,
+                    buds = state.value.buds,
+                    budsAt = state.value.budsAt,
+                    budsName = state.value.budsName,
+                    budsPicture = state.value.budsPicture,
                     quickStates = state.value.quickStates,
                     prism = QuickActions.prismInstalled(this@IslandService),
                 )
@@ -574,6 +604,13 @@ class IslandService : Service() {
         val name = runCatching { dev.name }.getOrNull().orEmpty()
         events.value = IslandEvent(IslandEvent.Kind.EARBUDS, earbudsText(name, level), SystemClock.elapsedRealtime())
     }
+
+    /** The paired earbuds' name (the advert doesn't carry one): the first bonded audio device, else "Earbuds". */
+    @Suppress("MissingPermission")
+    private fun budsName(): String = runCatching {
+        getSystemService(android.bluetooth.BluetoothManager::class.java).adapter.bondedDevices
+            .firstOrNull { it.bluetoothClass?.majorDeviceClass == android.bluetooth.BluetoothClass.Device.Major.AUDIO_VIDEO }?.name
+    }.getOrNull() ?: "Earbuds"
 
     private fun earbudsText(name: String, level: Int) = name.ifBlank { "Earbuds" } + if (level in 0..100) " · $level%" else ""
 

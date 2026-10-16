@@ -47,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -72,6 +73,11 @@ import kotlin.math.roundToInt
 class MainActivity : ComponentActivity() {
     private val askNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
     private val askAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    /** Bumped when a new buds picture is saved, so its preview redraws. */
+    private var pickedVersion by mutableIntStateOf(0)
+    private val pickBudsPicture = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null && com.meetdheeran.notch.buds.BudsPicture.set(this, uri)) pickedVersion++
+    }
     private val askBluetooth = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         // The scanner starts with the island; start it now that it may.
         com.meetdheeran.notch.buds.BudsScanner.start(this)
@@ -172,6 +178,8 @@ class MainActivity : ComponentActivity() {
                     if (v && !bluetooth) askBluetooth.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN))
                     set { it.copy(showEarbuds = v) }
                 }
+                Divider()
+                BudsPictureRow(pickedVersion) { pickBudsPicture.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
                 Divider()
                 Toggle("Screen recording and hotspot", "A red dot and the time while recording; the hotspot while it's on", s.showSystem) { v -> set { it.copy(showSystem = v) } }
             }
@@ -305,5 +313,27 @@ private fun SpeedRow(speed: Float, onChange: (Float) -> Unit) {
             value = v, onValueChange = { v = it }, onValueChangeFinished = { onChange(v) }, valueRange = 0.6f..1.6f,
             colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Oos.accent, inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant),
         )
+    }
+}
+
+/** The picture on the earbuds card: tap to choose one from the gallery (a photo of your own buds works best). */
+@Composable
+private fun BudsPictureRow(version: Int, onPick: () -> Unit) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val picture = remember(version) { com.meetdheeran.notch.buds.BudsPicture.get(ctx) }
+    Row(
+        Modifier.fillMaxWidth().pressable(scaleDown = 0.99f, onClick = onPick).padding(start = 18.dp, end = 14.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Buds picture", fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
+            Text(if (picture == null) "Shown when you open the case. Tap to choose one" else "Tap to choose another", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.width(12.dp))
+        Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+            if (picture != null) androidx.compose.foundation.Image(
+                picture.asImageBitmap(), null, contentScale = androidx.compose.ui.layout.ContentScale.Crop, modifier = Modifier.fillMaxSize(),
+            ) else Text("+", fontSize = 22.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
