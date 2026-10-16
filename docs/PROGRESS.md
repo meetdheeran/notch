@@ -7,7 +7,7 @@ Plan and decisions: [PLAN.md](PLAN.md). Built in checkpointed parts; each ends b
 | 1 | Read the system font + accent off the phone | **done 2026-10-16**: font OPlusSans 2.0 (SysSans-En-Regular.ttf = system sans-serif, used via FontFamily.Default); accent Settings.Secure `sysui_type_accent_color` (#ff4f67d2 here) |
 | 2 | New app + island in the notch, OxygenOS look | **on the phone 2026-10-16**: in the notch, charging dots showing; Prism's island switched off |
 | 3 | Live extras: earbuds + battery, screen recording / hotspot, low battery + charging done | **built 2026-10-16, not yet on the phone** |
-| 4 | Quick actions panel (tap the idle island) | **built 2026-10-16, not yet on the phone** |
+| 4 | Quick actions panel (tap the idle island) | **tested on the phone 2026-10-16**: torch on/off, Wi-Fi + Bluetooth via Shizuku, Timer — all work (Dheer) |
 | 5 | Vault: 4 taps → face → hidden apps | **paused 2026-10-16 — to be picked up in a fresh chat** (see Vault handoff) |
 | 6 | Settings / controls | basic screen done in part 2 |
 | 7 | Retire Morse | todo |
@@ -69,3 +69,6 @@ Plan and decisions: [PLAN.md](PLAN.md). Built in checkpointed parts; each ends b
 - After a reboot: start Shizuku over adb (`$(pm path moe.shizuku.privileged.api)/lib/arm64/libshizuku.so`) BEFORE
   Notch starts, or Notch won't get Shizuku's binder until its process restarts. OxygenOS needs Developer options →
   "Disable permission monitoring" on, or Shizuku warns that adb is limited.
+- Shizuku was being killed in the background (OplusHansManager). Asked Dheer to set Shizuku and Notch to
+  "Don't optimise" in Battery optimisation. Shizuku: Notch authorised via Shizuku → Authorized applications.
+- 4 taps: counted (heavy haptic) but opens nothing until the vault is built.
