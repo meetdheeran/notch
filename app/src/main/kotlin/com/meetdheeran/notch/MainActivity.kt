@@ -60,6 +60,8 @@ import com.meetdheeran.notch.island.IslandService
 import com.meetdheeran.notch.island.MediaWatcher
 import com.meetdheeran.notch.overlay.BackgroundNotice
 import com.meetdheeran.notch.overlay.OverlayHost
+import com.meetdheeran.notch.shizuku.ShizukuBridge
+import com.meetdheeran.notch.shizuku.ShizukuState
 import com.meetdheeran.notch.ui.NotchTheme
 import com.meetdheeran.notch.ui.Oos
 import com.meetdheeran.notch.ui.pressable
@@ -93,6 +95,7 @@ class MainActivity : ComponentActivity() {
         val overlay = remember(resumes) { OverlayHost.canDrawOverlays(this) }
         val listener = remember(resumes) { MediaWatcher.hasAccess(this) }
         val access = remember(resumes) { accessibilityOn() }
+        val shizuku = remember(resumes) { ShizukuBridge.refresh() }
         val bluetooth = remember(resumes) { checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == android.content.pm.PackageManager.PERMISSION_GRANTED }
         val audio = remember(resumes) { checkSelfPermission(Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED }
         LaunchedEffect(s.enabled, overlay, access) { if (s.enabled && (overlay || access)) IslandService.start(this@MainActivity) }
@@ -111,7 +114,7 @@ class MainActivity : ComponentActivity() {
             )
             Spacer(Modifier.height(24.dp))
 
-            if (!overlay || !listener || !access) {
+            if (!overlay || !listener || !access || shizuku != ShizukuState.READY) {
                 Header("Set up")
                 Card {
                     if (!access) Step(
@@ -121,6 +124,14 @@ class MainActivity : ComponentActivity() {
                     if (!listener) Step("See music, calls and timers", "Notification access → Notch → Allow") {
                         open(Intent(AndroidSettings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                     }
+                    if (shizuku != ShizukuState.READY) Step(
+                        "Allow Notch in Shizuku",
+                        when (shizuku) {
+                            ShizukuState.NOT_INSTALLED -> "Install Shizuku first. Needed for the Wi-Fi tile and hidden apps."
+                            ShizukuState.NOT_RUNNING -> "Start Shizuku (it stops after every reboot). Needed for the Wi-Fi tile and hidden apps."
+                            else -> "Tap, then Allow. Needed for the Wi-Fi tile and hidden apps."
+                        },
+                    ) { ShizukuBridge.requestPermission() }
                     if (!overlay) Step("Display over other apps", "Needed for the floating island when it isn't in the notch") {
                         open(Intent(AndroidSettings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
                     }

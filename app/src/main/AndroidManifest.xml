@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- The Wi-Fi tile shows whether Wi-Fi is on. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- Earbuds connected, and their battery. -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <!-- Optional: the music bars follow the real sound (Android's visualiser asks for this; the mic is never used). -->

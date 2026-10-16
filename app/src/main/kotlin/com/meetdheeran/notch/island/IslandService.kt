@@ -26,6 +26,9 @@ import com.meetdheeran.notch.core.Haptics
 import com.meetdheeran.notch.core.Settings
 import com.meetdheeran.notch.overlay.BackgroundNotice
 import com.meetdheeran.notch.overlay.OverlayHost
+import com.meetdheeran.notch.quick.QuickActions
+import com.meetdheeran.notch.quick.QuickStates
+import com.meetdheeran.notch.quick.QuickTile
 import com.meetdheeran.notch.ui.NotchTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -92,6 +95,10 @@ data class IslandState(
     val landscape: Boolean = false,
     /** Bumped when a timed pop (bloom, event, peek) expires, so the UI re-reads the clock. */
     val tick: Long = 0L,
+    /** The quick actions panel is open (tap the idle island), and what its switches show. */
+    val quick: Boolean = false,
+    val quickStates: QuickStates = QuickStates(),
+    val prism: Boolean = false,
 ) {
     val showChargeBloom: Boolean get() = chargedAt > 0 && SystemClock.elapsedRealtime() - chargedAt < 3_000
     val showEvent: Boolean get() = event != null && SystemClock.elapsedRealtime() - event.at < 3_500
@@ -101,8 +108,8 @@ data class IslandState(
     val showFace: Boolean get() = face != FaceScan.OFF &&
         SystemClock.elapsedRealtime() - faceAt < (if (face == FaceScan.SCANNING) 12_000 else 1_400)
     /** Cards that close when you tap anywhere else on the screen. */
-    val wantsOutsideTaps: Boolean get() = expanded
-    val hasContent: Boolean get() = (notch && !landscape) || activities.isNotEmpty() || chargingLive || showFace || showUnlock ||
+    val wantsOutsideTaps: Boolean get() = expanded || quick
+    val hasContent: Boolean get() = (notch && !landscape) || quick || activities.isNotEmpty() || chargingLive || showFace || showUnlock ||
         media != null || activity != null || showChargeBloom || showEvent || showPeek
 }
 
@@ -169,6 +176,8 @@ class IslandService : Service() {
         host = OverlayHost(this)
         charging = ChargingWatcher(this).also { it.start() }
         MediaWatcher.start(this)
+        QuickActions.start(this)
+        scope.launch { QuickActions.states.collect { q -> state.value = state.value.copy(quickStates = q) } }
         val ch = charging!!
         // Low battery: one pop when crossing 15% while unplugged.
         scope.launch {
@@ -262,6 +271,9 @@ class IslandService : Service() {
                     notch = inNotch,
                     landscape = state.value.landscape,
                     focusKey = state.value.focusKey,
+                    quick = state.value.quick,
+                    quickStates = state.value.quickStates,
+                    prism = QuickActions.prismInstalled(this@IslandService),
                 )
                 if (offsetChanged && showing && !inNotch) { host?.update(params(state.value.wantsOutsideTaps)); watchingOutside = state.value.wantsOutsideTaps }
                 sync()
@@ -316,7 +328,31 @@ class IslandService : Service() {
 
     /** One tap on the idle island, with no second one after it: the quick actions panel plugs in here. */
     private fun quickTap() {
-        onQuickTap?.invoke(this)
+        onQuickTap?.let { it(this); return }
+        setQuick(!state.value.quick)
+    }
+
+    private var quickJob: Job? = null
+
+    /** Opens or closes the quick panel; it closes by itself after a few seconds untouched. */
+    private fun setQuick(open: Boolean) {
+        if (open && state.value.expanded) setExpanded(false)
+        state.value = state.value.copy(quick = open, prism = QuickActions.prismInstalled(this))
+        sync()
+        refreshOutsideWatch()
+        quickJob?.cancel()
+        if (open) quickJob = scope.launch { delay(QUICK_IDLE_MS); setQuick(false) }
+    }
+
+    private fun quickTile(tile: QuickTile) {
+        val opened = QuickActions.run(this, tile)
+        if (opened) setQuick(false) else setQuick(true)
+    }
+
+    private fun quickHold(tile: QuickTile) {
+        Haptics.click(this)
+        QuickActions.settingsFor(this, tile)
+        setQuick(false)
     }
 
     /** In the notch, where the island takes touches on the screen (px): its pad's bounds. Empty while hidden. */
@@ -417,6 +453,8 @@ class IslandService : Service() {
                         state = st,
                         onTap = { tapped() },
                         onQuickTap = { quickTap() },
+                        onQuickTile = { t -> quickTile(t) },
+                        onQuickHold = { t -> quickHold(t) },
                         onFocus = { key -> state.value = state.value.copy(focusKey = key) },
                         onOpen = { key -> openLive(key) },
                         onToggleExpand = { setExpanded(!st.expanded) },
@@ -439,6 +477,7 @@ class IslandService : Service() {
     /** A tap anywhere else on the screen closes the card that's open. */
     private fun outsideTap() {
         if (state.value.expanded) setExpanded(false)
+        if (state.value.quick) setQuick(false)
         onOutsideTap?.invoke(this)
     }
 
@@ -556,6 +595,7 @@ class IslandService : Service() {
         private const val PRISM_ASSISTANT = "com.meetdheeran.prism.OPEN_ASSISTANT"
         /** In the notch, how far down the island's window reaches below the camera: its tallest card, with room to spare. */
         private const val STAGE_DP = 320f
+        private const val QUICK_IDLE_MS = 6_000L
 
         // Hidden-but-sent broadcasts: the hotspot turning on/off, and a Bluetooth device's battery.
         private const val ACTION_WIFI_AP_STATE_CHANGED = "android.net.wifi.WIFI_AP_STATE_CHANGED"

@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -102,6 +103,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import com.meetdheeran.notch.core.Haptics
+import com.meetdheeran.notch.quick.QuickStates
+import com.meetdheeran.notch.quick.QuickTile
+import androidx.compose.material.icons.rounded.CameraAlt
+import androidx.compose.material.icons.rounded.FlashlightOn
+import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.AutoAwesome
 import com.meetdheeran.notch.ui.IslandType
 import com.meetdheeran.notch.ui.Motion
 import com.meetdheeran.notch.ui.Oos
@@ -128,6 +135,8 @@ fun IslandUi(
     state: IslandState,
     onTap: () -> Unit,
     onQuickTap: () -> Unit,
+    onQuickTile: (QuickTile) -> Unit,
+    onQuickHold: (QuickTile) -> Unit,
     onFocus: (String) -> Unit,
     onOpen: (String) -> Unit,
     onToggleExpand: () -> Unit,
@@ -151,6 +160,7 @@ fun IslandUi(
     val mode = when {
         state.showFace -> Mode.FACE
         state.showUnlock -> Mode.UNLOCK
+        state.quick -> Mode.QUICK
         state.expanded && state.media != null -> Mode.EXPANDED
         act?.kind == LiveActivity.Kind.CALL -> Mode.CALL
         state.showPeek -> Mode.PEEK
@@ -175,10 +185,11 @@ fun IslandUi(
         when (m) {
             Mode.EMPTY -> base; Mode.MEDIA -> base + 64.dp; Mode.CHARGING -> base + 150.dp; Mode.CHARGE_LIVE -> base + 100.dp
             Mode.PROGRESS -> base + 120.dp; Mode.EVENT -> base + 124.dp; Mode.CALL, Mode.ACTIVITY -> base + 100.dp
-            Mode.PEEK -> 340.dp; Mode.UNLOCK, Mode.FACE -> base + 12.dp; Mode.EXPANDED -> 360.dp
+            Mode.PEEK -> 340.dp; Mode.UNLOCK, Mode.FACE -> base + 12.dp; Mode.EXPANDED -> 360.dp; Mode.QUICK -> 336.dp
         },
         when (m) {
             Mode.EXPANDED -> 86.dp + cam
+            Mode.QUICK -> if (tab) cam + 172.dp else baseH + 160.dp
             Mode.UNLOCK, Mode.FACE -> if (tab) cam + 52.dp else baseH + 34.dp
             Mode.CHARGING -> if (tab) cam + 36.dp else baseH + 6.dp
             Mode.PEEK -> if (tab) cam + 58.dp else baseH + 22.dp
@@ -215,7 +226,7 @@ fun IslandUi(
     // Room for the falling drop below the island while it drips.
     val spanH = maxOf(hold[1].dp, if (dripMode && drip.value < 1f) cam + 44.dp else 0.dp)
     val dx = (spanW - w) / 2
-    val big = mode == Mode.EXPANDED
+    val big = mode == Mode.EXPANDED || mode == Mode.QUICK
     val corner by animateDpAsState(when { big -> 32.dp; mode == Mode.UNLOCK || mode == Mode.FACE -> 26.dp; else -> baseH / 2 }, islandSpring, label = "corner")
     // The tab is flush with the screen's top edge: square on top, rounded below.
     val shape = if (tab) RoundedCornerShape(0.dp, 0.dp, corner, corner) else RoundedCornerShape(corner)
@@ -256,7 +267,7 @@ fun IslandUi(
     // (a "metaball"), so while they're close a liquid neck stretches between them and then snaps.
     val bubbles: List<Live> = when {
         !state.split -> emptyList()
-        mode == Mode.EXPANDED || mode == Mode.EMPTY || mode == Mode.UNLOCK || mode == Mode.FACE -> emptyList()
+        mode == Mode.EXPANDED || mode == Mode.QUICK || mode == Mode.EMPTY || mode == Mode.UNLOCK || mode == Mode.FACE -> emptyList()
         mode == Mode.MEDIA || mode == Mode.CALL || mode == Mode.ACTIVITY || mode == Mode.PROGRESS || mode == Mode.CHARGE_LIVE -> items.filter { it != current }.take(2)
         else -> items.take(2)
     }
@@ -379,7 +390,7 @@ fun IslandUi(
             Box(Modifier.offset(x = side + dx)) {
                 PillBody(
                     state, mode, act, current?.key, items.map { it.key }, w, h, { m -> sizeOf(m) }, { m -> if (under(m)) cam else 0.dp },
-                    open, cam, tint, shape, splitting, tapNow, quickNow, onFocus, onOpen, onToggleExpand, holdNow, onActivityTap, onPeekTap, onPeekDismiss,
+                    open, cam, tint, shape, splitting, tapNow, quickNow, onQuickTile, onQuickHold, onFocus, onOpen, onToggleExpand, holdNow, onActivityTap, onPeekTap, onPeekDismiss,
                 )
             }
             // Glyph flash: when a notification lands (or the cable goes in), a light runs once around the island's
@@ -432,7 +443,7 @@ private fun PillBody(
     w: androidx.compose.ui.unit.Dp, h: androidx.compose.ui.unit.Dp,
     sizeOf: (Mode) -> DpSize, topOf: (Mode) -> androidx.compose.ui.unit.Dp, open: Float, cam: androidx.compose.ui.unit.Dp, tint: Color?,
     shape: androidx.compose.ui.graphics.Shape, bare: Boolean,
-    onTap: () -> Unit, onQuickTap: () -> Unit, onFocus: (String) -> Unit, onOpen: (String) -> Unit, onToggleExpand: () -> Unit,
+    onTap: () -> Unit, onQuickTap: () -> Unit, onQuickTile: (QuickTile) -> Unit, onQuickHold: (QuickTile) -> Unit, onFocus: (String) -> Unit, onOpen: (String) -> Unit, onToggleExpand: () -> Unit,
     onHold: () -> Unit, onActivityTap: (LiveActivity) -> Unit, onPeekTap: (ShadeItem) -> Unit, onPeekDismiss: () -> Unit,
 ) {
     val tapScope = rememberCoroutineScope()
@@ -507,6 +518,8 @@ private fun PillBody(
                                     Mode.CALL, Mode.ACTIVITY, Mode.PROGRESS -> act?.let(onActivityTap)
                                     Mode.PEEK -> state.peek?.let(onPeekTap)
                                     Mode.MEDIA, Mode.EXPANDED -> onToggleExpand()
+                                    // A tap on the panel (not on a tile) puts it away.
+                                    Mode.QUICK -> onQuickTap()
                                     else -> onQuickTap()
                                 }
                             }
@@ -544,6 +557,7 @@ private fun PillBody(
                         Mode.UNLOCK -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { UnlockGlyph() }
                         Mode.FACE -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { FaceScanGlyph(state.face) }
                         Mode.PEEK -> state.peek?.let { if (state.notch) PeekCard(it) else PeekRow(it) }
+                        Mode.QUICK -> QuickPanel(state.quickStates, state.prism, onQuickTile, onQuickHold)
                     }
                 }
             }
@@ -551,7 +565,7 @@ private fun PillBody(
     }
 }
 
-private enum class Mode { EMPTY, MEDIA, CHARGING, CHARGE_LIVE, EVENT, CALL, ACTIVITY, PROGRESS, EXPANDED, PEEK, UNLOCK, FACE }
+private enum class Mode { EMPTY, MEDIA, CHARGING, CHARGE_LIVE, EVENT, CALL, ACTIVITY, PROGRESS, EXPANDED, PEEK, UNLOCK, FACE, QUICK }
 
 /** The island is black in every theme, so its colours are fixed; the accent is the phone's own. */
 private object Ink {
@@ -1265,3 +1279,59 @@ private fun ChargeSplit(b: BatteryInfo, gap: androidx.compose.ui.unit.Dp) = Spli
     },
     right = { Text(if (b.percent >= 0) "${b.percent}%" else "", style = IslandType.small, color = Ink.good, maxLines = 1) },
 )
+
+/**
+ * The quick actions, dropped out of the notch: two rows of OxygenOS-style tiles — rounded squares, lit in the phone's
+ * accent when on. Tap a tile to use it; hold one for its settings page.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun QuickPanel(q: QuickStates, prism: Boolean, onTile: (QuickTile) -> Unit, onHold: (QuickTile) -> Unit) {
+    val tiles = buildList {
+        add(QuickTile.TORCH); add(QuickTile.WIFI); add(QuickTile.BLUETOOTH)
+        add(QuickTile.CAMERA); add(QuickTile.TIMER); if (prism) add(QuickTile.PRISM)
+    }
+    Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        tiles.chunked(3).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                row.forEach { t ->
+                    val on = when (t) { QuickTile.TORCH -> q.torch; QuickTile.WIFI -> q.wifi; QuickTile.BLUETOOTH -> q.bluetooth; else -> false }
+                    QuickTileView(t, on, Modifier.width(84.dp), { onTile(t) }, { onHold(t) })
+                }
+                // Keep a short last row centred like the rows above it.
+                repeat(3 - row.size) { Spacer(Modifier.width(84.dp)) }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun QuickTileView(t: QuickTile, on: Boolean, modifier: Modifier, onClick: () -> Unit, onHold: () -> Unit) {
+    val ctx = LocalContext.current
+    val fill by androidx.compose.animation.animateColorAsState(if (on) Oos.accent else Color(0xFF2C2C2E), Motion.fade(200), label = "tile")
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier.size(54.dp).clip(RoundedCornerShape(Oos.TILE_RADIUS.dp)).background(fill)
+                .pointerInput(t) {
+                    detectTapGestures(
+                        onTap = { Haptics.tick(ctx); onClick() },
+                        onLongPress = { onHold() },
+                    )
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            val icon = when (t) {
+                QuickTile.TORCH -> Icons.Rounded.FlashlightOn
+                QuickTile.WIFI -> Icons.Rounded.Wifi
+                QuickTile.BLUETOOTH -> Icons.Rounded.Bluetooth
+                QuickTile.CAMERA -> Icons.Rounded.CameraAlt
+                QuickTile.TIMER -> Icons.Rounded.Timer
+                QuickTile.PRISM -> Icons.Rounded.AutoAwesome
+            }
+            Icon(icon, t.label, tint = Color.White, modifier = Modifier.size(24.dp))
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(t.label, style = IslandType.small, color = if (on) Color.White else Ink.secondary, maxLines = 1)
+    }
+}

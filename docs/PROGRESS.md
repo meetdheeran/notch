@@ -7,7 +7,7 @@ Plan and decisions: [PLAN.md](PLAN.md). Built in checkpointed parts; each ends b
 | 1 | Read the system font + accent off the phone | waiting for the phone (font already follows the system via FontFamily.Default) |
 | 2 | New app + island in the notch, OxygenOS look | **built 2026-10-16, not yet on the phone** |
 | 3 | Live extras: earbuds + battery, screen recording / hotspot, low battery + charging done | **built 2026-10-16, not yet on the phone** |
-| 4 | Quick actions panel (tap the idle island) | todo — hook `IslandService.onQuickTap` is ready |
+| 4 | Quick actions panel (tap the idle island) | **built 2026-10-16, not yet on the phone** |
 | 5 | Vault: 4 taps → face → hidden apps | todo — hooks `onKnock`, `setFace`, `watchOutsideTaps` ready |
 | 6 | Settings / controls | basic screen done in part 2 |
 | 7 | Retire Morse | todo |
@@ -34,3 +34,12 @@ Plan and decisions: [PLAN.md](PLAN.md). Built in checkpointed parts; each ends b
   live RECORDING (breathing red dot + elapsed time). UNTESTED: OxygenOS recorder's package/notification shape.
 - Hotspot: hidden WIFI_AP_STATE_CHANGED broadcast (state 13 = on) → live HOTSPOT; pull down opens tether settings.
 - Fully charged: one pop when it reaches 100% on the cable. Low battery pop at 15% (from Prism).
+
+## Part 4 notes
+- Tap the idle island (one tap, nothing after it) → the island grows into a black panel: Torch, Wi-Fi, Bluetooth,
+  Camera, Timer, Ask Prism (only if Prism is installed). Lit tiles use the phone's accent. Hold a tile → its settings
+  page (Timer: hold starts a 5-minute timer). Tap outside / tap the panel / 6 s idle → closes.
+- Wi-Fi: `svc wifi enable|disable` through Shizuku; without Shizuku, the system Wi-Fi panel opens.
+- Bluetooth: `cmd bluetooth_manager enable|disable` through Shizuku; else BluetoothAdapter.enable() (still allowed on 12).
+- Torch: CameraManager.setTorchMode, state from TorchCallback (so it also follows the system tile).
+- Shizuku bridge ported from Prism (UserService "notch-shell"); setup step "Allow Notch in Shizuku".
