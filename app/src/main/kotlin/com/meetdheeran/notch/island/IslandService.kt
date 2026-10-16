@@ -589,6 +589,7 @@ class IslandService : Service() {
         val name = runCatching { dev.name }.getOrNull().orEmpty()
         val audio = runCatching { dev.bluetoothClass?.majorDeviceClass == android.bluetooth.BluetoothClass.Device.Major.AUDIO_VIDEO }.getOrDefault(false)
         val now = SystemClock.elapsedRealtime()
+        if (audio && name.isNotBlank()) lastBudsName = name
         if (audio && lastSettings.showEarbuds) {
             earbuds = dev.address to now
             events.value = IslandEvent(IslandEvent.Kind.EARBUDS, earbudsText(name, batteryOf(dev)), now)
@@ -605,12 +606,24 @@ class IslandService : Service() {
         events.value = IslandEvent(IslandEvent.Kind.EARBUDS, earbudsText(name, level), SystemClock.elapsedRealtime())
     }
 
-    /** The paired earbuds' name (the advert doesn't carry one): the first bonded audio device, else "Earbuds". */
+    /**
+     * Which earbuds the card is about (the advert doesn't carry a name): the paired audio device that's connected right
+     * now, else the last earbuds that connected while Notch ran, else "Earbuds". Not just the first paired one — with
+     * several paired (CMF and Aukey here) that picked the wrong pair.
+     */
     @Suppress("MissingPermission")
-    private fun budsName(): String = runCatching {
-        getSystemService(android.bluetooth.BluetoothManager::class.java).adapter.bondedDevices
-            .firstOrNull { it.bluetoothClass?.majorDeviceClass == android.bluetooth.BluetoothClass.Device.Major.AUDIO_VIDEO }?.name
-    }.getOrNull() ?: "Earbuds"
+    private fun budsName(): String {
+        val audio = runCatching {
+            getSystemService(android.bluetooth.BluetoothManager::class.java).adapter.bondedDevices
+                .filter { it.bluetoothClass?.majorDeviceClass == android.bluetooth.BluetoothClass.Device.Major.AUDIO_VIDEO }
+        }.getOrNull().orEmpty()
+        // BluetoothDevice.isConnected() is hidden (but app-usable) on Android 12.
+        val connected = audio.firstOrNull { d -> runCatching { d.javaClass.getMethod("isConnected").invoke(d) as Boolean }.getOrDefault(false) }
+        return runCatching { connected?.name }.getOrNull() ?: lastBudsName ?: "Earbuds"
+    }
+
+    /** The last earbuds that connected (set by [btConnected]). */
+    private var lastBudsName: String? = null
 
     private fun earbudsText(name: String, level: Int) = name.ifBlank { "Earbuds" } + if (level in 0..100) " · $level%" else ""
 
