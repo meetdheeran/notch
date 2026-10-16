@@ -189,7 +189,7 @@ fun IslandUi(
         },
         when (m) {
             Mode.EXPANDED -> 86.dp + cam
-            Mode.QUICK -> if (tab) cam + 172.dp else baseH + 160.dp
+            Mode.QUICK -> if (tab) cam + 204.dp else baseH + 192.dp
             Mode.UNLOCK, Mode.FACE -> if (tab) cam + 52.dp else baseH + 34.dp
             Mode.CHARGING -> if (tab) cam + 36.dp else baseH + 6.dp
             Mode.PEEK -> if (tab) cam + 58.dp else baseH + 22.dp

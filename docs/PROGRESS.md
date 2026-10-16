@@ -63,3 +63,9 @@ Plan and decisions: [PLAN.md](PLAN.md). Built in checkpointed parts; each ends b
   build.gradle.kts: CameraX 1.3.4, mediapipe tasks-vision 0.10.20, onnxruntime-android 1.20.0, noCompress for
   tflite/onnx/task, and Morse's fetchFaceModels task (SHA-256 checked) instead of committing the models.
 - The vault UI needs an Activity (camera can't start from a background service on Android 12).
+- NEVER `am force-stop com.meetdheeran.notch`: Android then removes Notch from the enabled accessibility services and
+  Dheer has to switch "Notch island" on again by hand (happened 2026-10-16). To pick up a freshly started Shizuku,
+  reinstall (`adb install -r`, which keeps the accessibility switch) or open Notch again instead.
+- After a reboot: start Shizuku over adb (`$(pm path moe.shizuku.privileged.api)/lib/arm64/libshizuku.so`) BEFORE
+  Notch starts, or Notch won't get Shizuku's binder until its process restarts. OxygenOS needs Developer options →
+  "Disable permission monitoring" on, or Shizuku warns that adb is limited.
