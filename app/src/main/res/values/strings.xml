@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Notch</string>
+    <string name="accessibility_label">Notch island</string>
+    <string name="accessibility_description">Lets Notch draw the island inside the camera notch, above the status bar, so tapping it never pulls the notification shade down. Notch also uses it to notice when you leave a hidden app, so it can hide it again. It does not read or change what\'s on your screen.</string>
+</resources>

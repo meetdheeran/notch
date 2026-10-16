@@ -1,0 +1,1242 @@
+package com.meetdheeran.notch.island
+
+import android.graphics.Bitmap
+import android.graphics.Shader
+import android.os.SystemClock
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.BatteryAlert
+import androidx.compose.material.icons.rounded.Bluetooth
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Call
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.HourglassBottom
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Navigation
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material.icons.rounded.Wifi
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
+import androidx.compose.ui.unit.sp
+import com.meetdheeran.notch.core.Haptics
+import com.meetdheeran.notch.ui.IslandType
+import com.meetdheeran.notch.ui.Motion
+import com.meetdheeran.notch.ui.Oos
+import com.meetdheeran.notch.ui.pressable
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlin.math.sin
+
+/**
+ * The island. Geometry follows the OnePlus 7's waterdrop cutout (about 64 dp wide, 28 dp tall, at the very top). In
+ * the notch it is a black tab flush with the top edge that grows around the camera: live things (music, calls, timers,
+ * downloads, charging) sit either side of it within the status bar, pops (a notification, an event, the face check)
+ * grow down out of it, and tapped music opens into a card. Plain black, to be one with the camera cutout.
+ *
+ * Taps: every tap counts towards the knock (4 = the secret door). A single tap, with no second one after it, does the
+ * island's own thing — open the music card, open the call or download, or (idle) the quick actions. Hold: Prism.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun IslandUi(
+    state: IslandState,
+    onTap: () -> Unit,
+    onQuickTap: () -> Unit,
+    onFocus: (String) -> Unit,
+    onOpen: (String) -> Unit,
+    onToggleExpand: () -> Unit,
+    onHold: () -> Unit,
+    onActivityTap: (LiveActivity) -> Unit,
+    onPeekTap: (ShadeItem) -> Unit,
+    onHitArea: (androidx.compose.ui.geometry.Rect) -> Unit,
+    onPeekDismiss: () -> Unit,
+) {
+    // Everything live at once: one shows in the island, up to two more wait in bubbles beside it; swipe the island
+    // sideways to switch, pull it down to open that app.
+    val items = remember(state.activities, state.media != null, state.chargingLive) {
+        buildList<Live> {
+            state.activities.forEach { add(Live.Act(it)) }
+            if (state.media != null) add(Live.Media)
+            if (state.chargingLive) add(Live.Charge)
+        }
+    }
+    val current = items.firstOrNull { it.key == state.focusKey } ?: items.firstOrNull()
+    val act = (current as? Live.Act)?.a
+    val mode = when {
+        state.showFace -> Mode.FACE
+        state.showUnlock -> Mode.UNLOCK
+        state.expanded && state.media != null -> Mode.EXPANDED
+        act?.kind == LiveActivity.Kind.CALL -> Mode.CALL
+        state.showPeek -> Mode.PEEK
+        state.showEvent -> Mode.EVENT
+        state.showChargeBloom -> Mode.CHARGING
+        act?.kind == LiveActivity.Kind.PROGRESS -> Mode.PROGRESS
+        act != null -> Mode.ACTIVITY
+        current == Live.Media -> Mode.MEDIA
+        current == Live.Charge -> Mode.CHARGE_LIVE
+        else -> Mode.EMPTY
+    }
+    // In the notch: a tab exactly over the camera cutout; otherwise the floating pill.
+    val tab = state.notch
+    val base = if (tab) state.cutWidthDp.dp else state.pillWidthDp.dp
+    val baseH = if (tab) (state.cutHeightDp + 1f).dp else state.pillHeightDp.dp
+    // In the notch the camera sits in the middle of the tab's top. Things that stay up sit either side of it, within
+    // the status bar so they never cover the app; pops show under it, the tab growing down out of the notch.
+    val cam = if (tab) state.cutHeightDp.dp else 0.dp
+    fun under(m: Mode) = tab && !(m == Mode.EMPTY || m == Mode.MEDIA || m == Mode.CALL || m == Mode.ACTIVITY || m == Mode.PROGRESS || m == Mode.CHARGE_LIVE)
+    /** How big the island is when it shows [m]; each look is also laid out at this size (see [PillBody]). */
+    fun sizeOf(m: Mode) = DpSize(
+        when (m) {
+            Mode.EMPTY -> base; Mode.MEDIA -> base + 64.dp; Mode.CHARGING -> base + 150.dp; Mode.CHARGE_LIVE -> base + 100.dp
+            Mode.PROGRESS -> base + 120.dp; Mode.EVENT -> base + 124.dp; Mode.CALL, Mode.ACTIVITY -> base + 100.dp
+            Mode.PEEK -> 340.dp; Mode.UNLOCK, Mode.FACE -> base + 12.dp; Mode.EXPANDED -> 360.dp
+        },
+        when (m) {
+            Mode.EXPANDED -> 86.dp + cam
+            Mode.UNLOCK, Mode.FACE -> if (tab) cam + 52.dp else baseH + 34.dp
+            Mode.CHARGING -> if (tab) cam + 36.dp else baseH + 6.dp
+            Mode.PEEK -> if (tab) cam + 58.dp else baseH + 22.dp
+            else -> if (under(m)) cam + 30.dp else baseH
+        },
+    )
+    val below = under(mode)
+    // Liquid drop: in the notch, a notification (or an event) first drips out — a drop on a stretchy neck — and the
+    // card grows out of it; the island keeps the size it had until the drop has fallen.
+    val dripMode = tab && (mode == Mode.PEEK || mode == Mode.EVENT)
+    val dripKey = if (!dripMode) 0L else if (mode == Mode.PEEK) state.peekAt else state.event?.at ?: 0L
+    val drip = remember(dripKey) { androidx.compose.animation.core.Animatable(if (dripKey != 0L) 0f else 1f) }
+    LaunchedEffect(drip) { if (drip.value < 1f) drip.animateTo(1f, tween((DRIP_MS / state.speed).roundToInt(), easing = LinearEasing)) }
+    val lastLook = remember { arrayOf(Mode.EMPTY) }
+    if (!dripMode) lastLook[0] = mode
+    val target = sizeOf(if (dripMode && drip.value < DRIP_FALL) lastLook[0] else mode)
+    val targetW = target.width
+    val targetH = target.height
+    val speed = state.speed
+    val islandSpring = spring<androidx.compose.ui.unit.Dp>(dampingRatio = 0.66f, stiffness = 380f * speed * speed)
+    val w by animateDpAsState(targetW, islandSpring, label = "w")
+    val h by animateDpAsState(targetH, islandSpring, label = "h")
+    // The island's touch area keeps one size while the island animates — the biggest it will be — and only the black
+    // shape moves inside it, so windows change when the island starts and stops changing, never every frame.
+    val hold = remember { floatArrayOf(0f, 0f) }
+    if (abs(w.value - targetW.value) < 0.5f && abs(h.value - targetH.value) < 0.5f) {
+        hold[0] = targetW.value
+        hold[1] = targetH.value
+    } else {
+        hold[0] = maxOf(hold[0], targetW.value, w.value)
+        hold[1] = maxOf(hold[1], targetH.value, h.value)
+    }
+    val spanW = hold[0].dp
+    // Room for the falling drop below the island while it drips.
+    val spanH = maxOf(hold[1].dp, if (dripMode && drip.value < 1f) cam + 44.dp else 0.dp)
+    val dx = (spanW - w) / 2
+    val big = mode == Mode.EXPANDED
+    val corner by animateDpAsState(when { big -> 32.dp; mode == Mode.UNLOCK || mode == Mode.FACE -> 26.dp; else -> baseH / 2 }, islandSpring, label = "corner")
+    // The tab is flush with the screen's top edge: square on top, rounded below.
+    val shape = if (tab) RoundedCornerShape(0.dp, 0.dp, corner, corner) else RoundedCornerShape(corner)
+    // The music card opening, 0 (small) → 1 (open), straight from the island's own height spring.
+    val shutH = sizeOf(Mode.MEDIA).height
+    val openH = sizeOf(Mode.EXPANDED).height
+    val open = if ((mode == Mode.MEDIA || mode == Mode.EXPANDED) && openH > shutH) (h - shutH) / (openH - shutH) else 0f
+    // The cover's own colour: a light under the open card, and the bars and progress.
+    val tint = remember(state.media?.art) { coverColor(state.media?.art) }
+
+    // Jelly touch: the island gives a little under the finger (from its top edge, where the tab hangs), wobbles back
+    // when the finger lets go, and ticks; a card opening or closing clicks.
+    val ctx = LocalContext.current
+    var pressed by remember { mutableStateOf(false) }
+    val squish by animateFloatAsState(
+        if (pressed) 0.95f else 1f,
+        if (pressed) spring(dampingRatio = 0.9f, stiffness = 1_000f) else spring(dampingRatio = 0.4f, stiffness = 500f),
+        label = "squish",
+    )
+    val pressWatch = Modifier.pointerInput(Unit) {
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            pressed = true
+            Haptics.tick(ctx)
+            do {
+                val e = awaitPointerEvent(PointerEventPass.Initial)
+            } while (e.changes.any { it.pressed })
+            pressed = false
+        }
+    }
+    val wasBig = remember { booleanArrayOf(big) }
+    LaunchedEffect(big) {
+        if (big != wasBig[0]) Haptics.click(ctx)
+        wasBig[0] = big
+    }
+
+    // The other live things wait beside it as bubbles. The black shapes are drawn through a blur + alpha threshold
+    // (a "metaball"), so while they're close a liquid neck stretches between them and then snaps.
+    val bubbles: List<Live> = when {
+        !state.split -> emptyList()
+        mode == Mode.EXPANDED || mode == Mode.EMPTY || mode == Mode.UNLOCK || mode == Mode.FACE -> emptyList()
+        mode == Mode.MEDIA || mode == Mode.CALL || mode == Mode.ACTIVITY || mode == Mode.PROGRESS || mode == Mode.CHARGE_LIVE -> items.filter { it != current }.take(2)
+        else -> items.take(2)
+    }
+    val split by animateFloatAsState(
+        if (bubbles.isNotEmpty()) 1f else 0f,
+        spring(dampingRatio = 0.55f, stiffness = 360f * speed * speed), label = "split",
+    )
+    val lastBubbles = remember { mutableStateOf<List<Live>>(emptyList()) }
+    if (bubbles.isNotEmpty()) lastBubbles.value = bubbles
+    val splitting = split > 0.002f
+    val shown = if (bubbles.isNotEmpty()) bubbles else lastBubbles.value
+    val bubble = baseH
+    val gap = 8.dp
+    // Equal room on both sides keeps the pill centred on the camera while the bubbles sit right.
+    val side = if (splitting) (bubble + gap) * shown.size + 6.dp else 0.dp
+    // The bubble's middle: level with the row it belongs beside.
+    val bubbleY = if (below) cam + (h - cam) / 2 else h / 2
+    val density = LocalDensity.current
+
+    // The tab's shoulders: little inward curves where it meets the top edge, like a real notch.
+    val shoulder = if (tab) 6.dp else 0.dp
+    val outer = if (tab) Modifier.padding(start = shoulder, end = shoulder, bottom = 2.dp) else Modifier.padding(bottom = 8.dp, start = 8.dp, end = 8.dp)
+    // The notch is small and mostly camera: around the tab an invisible margin catches taps too (they count towards
+    // the knock), so a tap near the notch never lands on what's under it.
+    val tapNow by rememberUpdatedState(onTap)
+    val quickNow by rememberUpdatedState(onQuickTap)
+    val holdNow by rememberUpdatedState(onHold)
+    val hitNow by rememberUpdatedState(onHitArea)
+    val hitArea = if (tab) {
+        Modifier
+            // Where the island takes touches, for its pad window (IslandPad).
+            .onGloballyPositioned { hitNow(it.boundsInWindow()) }
+            .pointerInput(Unit) { detectTapGestures(onTap = { tapNow() }, onLongPress = { holdNow() }) }
+            .padding(start = 24.dp, end = 24.dp, bottom = 10.dp)
+    } else Modifier
+    Box(pressWatch.then(hitArea)) {
+        // In the notch's screen-wide window a wide card plus the touch margins can be wider than the screen: the island
+        // keeps its size (centred) rather than being squeezed.
+        Box(
+            outer
+                .then(if (tab) Modifier.requiredSize(spanW + side * 2, spanH) else Modifier.width(spanW + side * 2).height(spanH))
+                .graphicsLayer {
+                    scaleX = squish
+                    scaleY = 1f - (1f - squish) * 1.4f
+                    transformOrigin = TransformOrigin(0.5f, if (tab) 0f else 0.5f)
+                },
+        ) {
+            if (tab) {
+                Canvas(Modifier.matchParentSize()) {
+                    val s = shoulder.toPx()
+                    val l = (side + dx).toPx()
+                    val r = l + w.toPx()
+                    drawPath(androidx.compose.ui.graphics.Path().apply {
+                        moveTo(l - s, 0f); lineTo(l + 1f, 0f); lineTo(l + 1f, s)
+                        arcTo(androidx.compose.ui.geometry.Rect(l - 2 * s, 0f, l, 2 * s), 0f, -90f, false)
+                        close()
+                    }, Color.Black)
+                    drawPath(androidx.compose.ui.graphics.Path().apply {
+                        moveTo(r + s, 0f); lineTo(r - 1f, 0f); lineTo(r - 1f, s)
+                        arcTo(androidx.compose.ui.geometry.Rect(r, 0f, r + 2 * s, 2 * s), 180f, 90f, false)
+                        close()
+                    }, Color.Black)
+                }
+            }
+            // Depth: open cards cast a soft shadow on the app below, so they float over it.
+            val depth by animateFloatAsState(if (big) 1f else 0f, tween(300), label = "depth")
+            if (depth > 0.01f) {
+                Canvas(Modifier.matchParentSize()) {
+                    val rx = w.toPx() * 0.52f
+                    val ry = 24.dp.toPx()
+                    val c = Offset((side + dx).toPx() + w.toPx() / 2, h.toPx() - 6.dp.toPx())
+                    withTransform({ scale(1f, ry / rx, c) }) {
+                        drawCircle(Brush.radialGradient(listOf(Color.Black.copy(alpha = 0.5f * depth), Color.Transparent), center = c, radius = rx), radius = rx, center = c)
+                    }
+                }
+            }
+            if (dripMode && drip.value < 1f) {
+                val goo = remember(density) { gooeyEffect(with(density) { 7.dp.toPx() }) }
+                Canvas(Modifier.matchParentSize().graphicsLayer { renderEffect = goo }) {
+                    val d = drip.value
+                    val left = (side + dx).toPx()
+                    // The tab it drips from (its top corners above the screen edge, as in the split).
+                    drawRoundRect(Color.Black, Offset(left, -h.toPx() / 2), Size(w.toPx(), h.toPx() * 1.5f), CornerRadius(h.toPx() / 2))
+                    val fall = FastOutSlowInEasing.transform((d / DRIP_FALL).coerceIn(0f, 1f))
+                    val y0 = h.toPx() * 0.55f
+                    val y = y0 + ((cam + 24.dp).toPx() - y0) * fall
+                    // The drop grows as it falls, then the card swallows it.
+                    val r = (4.dp.toPx() + 8.dp.toPx() * fall) * (1f - ((d - 0.8f) / 0.2f).coerceIn(0f, 1f))
+                    if (r > 0.5f) drawCircle(Color.Black, r, Offset(left + w.toPx() / 2, y))
+                }
+            }
+            if (open > 0.02f && tint != null) {
+                // Drawn under the island: only what spills out below the black card shows, a soft light in the cover's
+                // colour.
+                Canvas(Modifier.matchParentSize()) {
+                    val o = open.coerceIn(0f, 1f)
+                    val rx = w.toPx() * 0.46f
+                    val ry = 30.dp.toPx()
+                    val c = Offset((side + dx).toPx() + w.toPx() / 2, h.toPx() - 8.dp.toPx())
+                    withTransform({ scale(1f, ry / rx, c) }) {
+                        drawCircle(Brush.radialGradient(listOf(tint.copy(alpha = 0.5f * o), Color.Transparent), center = c, radius = rx), radius = rx, center = c)
+                    }
+                }
+            }
+            if (splitting) {
+                val gooey = remember(density) { gooeyEffect(with(density) { 7.dp.toPx() }) }
+                Canvas(Modifier.matchParentSize().graphicsLayer { renderEffect = gooey }) {
+                    val left = (side + dx).toPx()
+                    // The tab's top corners go above the screen edge, so it stays flush with the top.
+                    if (tab) drawRoundRect(Color.Black, Offset(left, -h.toPx() / 2), Size(w.toPx(), h.toPx() * 1.5f), CornerRadius(h.toPx() / 2))
+                    else drawRoundRect(Color.Black, Offset(left, 0f), Size(w.toPx(), h.toPx()), CornerRadius(h.toPx() / 2))
+                    val r = bubble.toPx() / 2 * (0.55f + 0.45f * split.coerceIn(0f, 1.2f))
+                    // From tucked inside the pill's right end out to their resting spots, overshooting on the spring.
+                    for (i in shown.indices) {
+                        val cx = left + w.toPx() - bubble.toPx() / 2 + (bubble + gap).toPx() * (i + 1) * split
+                        drawCircle(Color.Black, r, Offset(cx, bubbleY.toPx()))
+                    }
+                }
+            }
+            Box(Modifier.offset(x = side + dx)) {
+                PillBody(
+                    state, mode, act, current?.key, items.map { it.key }, w, h, { m -> sizeOf(m) }, { m -> if (under(m)) cam else 0.dp },
+                    open, cam, tint, shape, splitting, tapNow, quickNow, onFocus, onOpen, onToggleExpand, holdNow, onActivityTap, onPeekTap, onPeekDismiss,
+                )
+            }
+            // Glyph flash: when a notification lands (or the cable goes in), a light runs once around the island's
+            // edge — down one side, along the bottom, up the other in the notch.
+            val flashKey = when (mode) {
+                Mode.PEEK -> state.peekAt
+                Mode.CHARGING -> state.chargedAt
+                else -> 0L
+            }
+            val flash = remember(flashKey) { androidx.compose.animation.core.Animatable(if (flashKey != 0L) 0f else 1f) }
+            LaunchedEffect(flash) {
+                if (flash.value < 1f) {
+                    delay(FLASH_DELAY_MS)
+                    flash.animateTo(1f, tween(900, easing = LinearEasing))
+                }
+            }
+            if (flash.value > 0.001f && flash.value < 0.999f) {
+                val glyph = if (mode == Mode.CHARGING) Ink.good else Oos.accent
+                Canvas(Modifier.matchParentSize()) { glyphFlash(flash.value, (side + dx).toPx(), w.toPx(), h.toPx(), corner.toPx(), tab, glyph) }
+            }
+            if (splitting) {
+                shown.forEachIndexed { i, live ->
+                    val x = side + dx + w - bubble + (bubble + gap) * (i + 1) * split
+                    Box(
+                        Modifier
+                            .offset(x = x, y = bubbleY - bubble / 2)
+                            .size(bubble)
+                            .graphicsLayer {
+                                alpha = ((split - 0.55f) / 0.45f).coerceIn(0f, 1f)
+                                val sc = 0.8f + 0.2f * split.coerceAtMost(1f)
+                                scaleX = sc; scaleY = sc
+                            }
+                            .pointerInput(live.key) {
+                                // Tap a bubble: it takes the island.
+                                detectTapGestures(onTap = { tapNow(); onFocus(live.key) }, onLongPress = { holdNow() })
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) { BubbleIcon(live, state, bubble) }
+                }
+            }
+        }
+    }
+}
+
+/** The island's black shape, its gestures, and what it shows. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun PillBody(
+    state: IslandState, mode: Mode, act: LiveActivity?, currentKey: String?, keys: List<String>,
+    w: androidx.compose.ui.unit.Dp, h: androidx.compose.ui.unit.Dp,
+    sizeOf: (Mode) -> DpSize, topOf: (Mode) -> androidx.compose.ui.unit.Dp, open: Float, cam: androidx.compose.ui.unit.Dp, tint: Color?,
+    shape: androidx.compose.ui.graphics.Shape, bare: Boolean,
+    onTap: () -> Unit, onQuickTap: () -> Unit, onFocus: (String) -> Unit, onOpen: (String) -> Unit, onToggleExpand: () -> Unit,
+    onHold: () -> Unit, onActivityTap: (LiveActivity) -> Unit, onPeekTap: (ShadeItem) -> Unit, onPeekDismiss: () -> Unit,
+) {
+    val tapScope = rememberCoroutineScope()
+    val tapClock = remember { longArrayOf(0L) }
+    val pendingTap = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
+    Box {
+        // Split: the gooey layer behind already draws this pill's black shape.
+        if (!bare) Box(Modifier.size(w, h).background(Color.Black, shape))
+        Box(
+            Modifier
+                .size(w, h)
+                .pointerInput(mode, currentKey) {
+                    // Pull the island down: open what it shows (the music app, the call, the download), never the
+                    // status bar under it.
+                    var pulled = 0f
+                    detectVerticalDragGestures(
+                        onDragStart = { pulled = 0f },
+                        onDragEnd = {
+                            if (pulled > 36.dp.toPx()) {
+                                when (mode) {
+                                    Mode.PEEK -> state.peek?.let(onPeekTap)
+                                    else -> currentKey?.let(onOpen)
+                                }
+                            } else if (pulled < -24.dp.toPx() && mode == Mode.PEEK) {
+                                // Push a notification back up into the notch: it's put away.
+                                onPeekDismiss()
+                            }
+                        },
+                    ) { change, dy -> change.consume(); pulled += dy }
+                }
+                .pointerInput(keys, currentKey, mode) {
+                    // Swipe sideways: on the open music card, the song follows the finger and a long enough swipe skips
+                    // (left: next, right: back); otherwise the next live thing takes the island.
+                    var dx = 0f
+                    val card = mode == Mode.EXPANDED
+                    detectHorizontalDragGestures(
+                        onDragStart = { dx = 0f },
+                        onDragEnd = {
+                            if (card) {
+                                val skip = abs(dx) > 48.dp.toPx()
+                                if (skip) { if (dx < 0) MediaWatcher.next() else MediaWatcher.previous() }
+                                tapScope.launch { MusicSwipe.settle(skip, dx < 0, 70.dp.toPx()) }
+                            } else if (keys.size > 1 && abs(dx) > 32.dp.toPx()) {
+                                val i = keys.indexOf(currentKey).coerceAtLeast(0)
+                                onFocus(keys[(i + (if (dx < 0) 1 else -1) + keys.size) % keys.size])
+                            }
+                        },
+                        onDragCancel = { if (card) tapScope.launch { MusicSwipe.settle(false, false, 0f) } },
+                    ) { change, d ->
+                        change.consume()
+                        dx += d
+                        if (card) MusicSwipe.x = dx * 0.55f
+                    }
+                }
+                .pointerInput(mode) {
+                    detectTapGestures(
+                        onTap = {
+                            // Every tap counts towards the knock. A tap only does its own thing once no second one
+                            // follows quickly: a quick run of taps is a knock, so the music card (or the quick actions)
+                            // doesn't pop up in the middle of it.
+                            onTap()
+                            val now = SystemClock.uptimeMillis()
+                            val knocking = now - tapClock[0] < 350
+                            tapClock[0] = now
+                            pendingTap[0]?.cancel()
+                            pendingTap[0] = null
+                            if (knocking) return@detectTapGestures
+                            pendingTap[0] = tapScope.launch {
+                                delay(350)
+                                when (mode) {
+                                    Mode.UNLOCK, Mode.FACE -> Unit
+                                    Mode.CALL, Mode.ACTIVITY, Mode.PROGRESS -> act?.let(onActivityTap)
+                                    Mode.PEEK -> state.peek?.let(onPeekTap)
+                                    Mode.MEDIA, Mode.EXPANDED -> onToggleExpand()
+                                    else -> onQuickTap()
+                                }
+                            }
+                        },
+                        onLongPress = { onHold() },
+                    )
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            // Each look is laid out at its own final size, hanging from the top, and the black shape reveals it as the
+            // island grows (and clips it as it shrinks): nothing inside squeezes or reflows while the island animates.
+            // Music small and music open are one look (MusicMorph), so opening the card is one movement.
+            AnimatedContent(
+                if (mode == Mode.EXPANDED) Mode.MEDIA else mode, Modifier.fillMaxSize().clip(shape),
+                transitionSpec = {
+                    (fadeIn(Motion.fade(200)) + scaleIn(Motion.fade(320), initialScale = 0.92f, transformOrigin = TransformOrigin(0.5f, 0f))) togetherWith fadeOut(Motion.fade(120))
+                },
+                label = "island",
+            ) { m ->
+                val music = m == Mode.MEDIA
+                Box(
+                    Modifier.fillMaxSize().wrapContentSize(Alignment.TopCenter, unbounded = true)
+                        .size(sizeOf(if (music) Mode.EXPANDED else m)).padding(top = if (music) 0.dp else topOf(m)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    when (m) {
+                        Mode.EMPTY -> Box(Modifier.fillMaxSize())
+                        Mode.MEDIA, Mode.EXPANDED -> state.media?.let { MusicMorph(it, open, sizeOf(Mode.MEDIA), cam, tint) }
+                        Mode.CHARGING -> ChargeMoment(state.battery)
+                        Mode.EVENT -> state.event?.let { EventRow(it) }
+                        Mode.CALL -> act?.let { if (state.notch) CallSplit(it, state.cutWidthDp.dp) else CallRow(it) }
+                        Mode.ACTIVITY -> act?.let { if (state.notch) ActivitySplit(it, state.cutWidthDp.dp) else ActivityRow(it) }
+                        Mode.PROGRESS -> act?.let { if (state.notch) ProgressSplit(it, state.cutWidthDp.dp) else ProgressRow(it) }
+                        Mode.CHARGE_LIVE -> if (state.notch) ChargeSplit(state.battery, state.cutWidthDp.dp) else ChargeRow(state.battery)
+                        Mode.UNLOCK -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { UnlockGlyph() }
+                        Mode.FACE -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { FaceScanGlyph(state.face) }
+                        Mode.PEEK -> state.peek?.let { if (state.notch) PeekCard(it) else PeekRow(it) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private enum class Mode { EMPTY, MEDIA, CHARGING, CHARGE_LIVE, EVENT, CALL, ACTIVITY, PROGRESS, EXPANDED, PEEK, UNLOCK, FACE }
+
+/** The island is black in every theme, so its colours are fixed; the accent is the phone's own. */
+private object Ink {
+    val good get() = Oos.good
+    val warm get() = Oos.warm
+    val cyan get() = Oos.accent
+    val blue get() = Oos.accent
+    val bad get() = Oos.bad
+    val secondary get() = Oos.secondary
+    val tertiary get() = Oos.tertiary
+}
+
+/** One live thing the island can show. */
+private sealed interface Live {
+    val key: String
+
+    data class Act(val a: LiveActivity) : Live {
+        override val key: String get() = a.key
+    }
+
+    data object Media : Live {
+        override val key = "media"
+    }
+
+    data object Charge : Live {
+        override val key = "charge"
+    }
+}
+
+/** What a waiting live thing looks like in its bubble. */
+@Composable
+private fun BubbleIcon(live: Live, state: IslandState, size: androidx.compose.ui.unit.Dp) {
+    when (live) {
+        Live.Media -> state.media?.let { np -> if (np.art != null) Art(np, size - 12.dp, CircleShape) else AudioBars(np.isPlaying) }
+        Live.Charge -> Icon(Icons.Rounded.Bolt, null, tint = Ink.good, modifier = Modifier.size(14.dp))
+        is Live.Act -> when (live.a.kind) {
+            LiveActivity.Kind.CALL -> Icon(Icons.Rounded.Call, null, tint = Ink.good, modifier = Modifier.size(14.dp))
+            LiveActivity.Kind.NAVIGATION -> Icon(Icons.Rounded.Navigation, null, tint = Ink.warm, modifier = Modifier.size(14.dp))
+            LiveActivity.Kind.TIMER ->
+                if (live.a.chronometerBase > 0) MiniChrono(live.a.chronometerBase, live.a.countDown)
+                else Icon(Icons.Rounded.HourglassBottom, null, tint = Ink.warm, modifier = Modifier.size(14.dp))
+            LiveActivity.Kind.PROGRESS ->
+                Text(live.a.fraction?.let { "${(it * 100).roundToInt()}" } ?: "\u2026", style = IslandType.small, color = Ink.cyan, maxLines = 1)
+        }
+    }
+}
+
+/** How far the liquid drop's fall is (of its whole run) before the card starts growing out of it. */
+private const val DRIP_FALL = 0.38f
+private const val DRIP_MS = 700
+private const val FLASH_DELAY_MS = 380L
+
+/**
+ * A comet of light along the island's edge at [t] (0 → 1): in the notch down the left side, along the bottom and up
+ * the right (the top is the screen's edge); out of it, all the way round. A bright head, a fading tail, a soft glow.
+ */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.glyphFlash(t: Float, left: Float, width: Float, height: Float, corner: Float, tab: Boolean, color: Color) {
+    val r = left + width
+    val c = corner.coerceAtMost(minOf(width, height) / 2)
+    val path = androidx.compose.ui.graphics.Path()
+    if (tab) {
+        path.moveTo(left, 0f)
+        path.lineTo(left, height - c)
+        path.arcTo(androidx.compose.ui.geometry.Rect(left, height - 2 * c, left + 2 * c, height), 180f, -90f, false)
+        path.lineTo(r - c, height)
+        path.arcTo(androidx.compose.ui.geometry.Rect(r - 2 * c, height - 2 * c, r, height), 90f, -90f, false)
+        path.lineTo(r, 0f)
+    } else {
+        path.addRoundRect(androidx.compose.ui.geometry.RoundRect(left, 0f, r, height, CornerRadius(c)))
+    }
+    val measure = androidx.compose.ui.graphics.PathMeasure()
+    measure.setPath(path, false)
+    val length = measure.length
+    if (length <= 0f) return
+    val tail = length * 0.3f
+    val head = t * (length + tail)
+    val piece = androidx.compose.ui.graphics.Path()
+    val steps = 8
+    for (k in 0 until steps) {
+        val to = (head - tail * k / steps).coerceIn(0f, length)
+        val from = (head - tail * (k + 1) / steps).coerceIn(0f, length)
+        if (to - from < 0.5f) continue
+        piece.reset()
+        measure.getSegment(from, to, piece, true)
+        val a = 1f - k.toFloat() / steps
+        drawPath(piece, color.copy(alpha = 0.22f * a), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 7.dp.toPx(), cap = StrokeCap.Round))
+        drawPath(piece, color.copy(alpha = a), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.4.dp.toPx(), cap = StrokeCap.Round))
+    }
+}
+
+/** Blur, then push alpha through a steep ramp: soft blobs become one hard shape with liquid necks. */
+private fun gooeyEffect(blurPx: Float): androidx.compose.ui.graphics.RenderEffect {
+    val threshold = android.graphics.ColorMatrix(floatArrayOf(
+        1f, 0f, 0f, 0f, 0f,
+        0f, 1f, 0f, 0f, 0f,
+        0f, 0f, 1f, 0f, 0f,
+        0f, 0f, 0f, 28f, -28f * 128f,
+    ))
+    val blur = android.graphics.RenderEffect.createBlurEffect(blurPx, blurPx, Shader.TileMode.DECAL)
+    return android.graphics.RenderEffect.createColorFilterEffect(android.graphics.ColorMatrixColorFilter(threshold), blur).asComposeRenderEffect()
+}
+
+/** A compact countdown for the bubble: minutes, or seconds under a minute. */
+@Composable
+private fun MiniChrono(baseWallMs: Long, countDown: Boolean) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { delay(1000); now = System.currentTimeMillis() } }
+    val s = ((if (countDown) (baseWallMs - now) else (now - baseWallMs)) / 1000).coerceAtLeast(0)
+    Text(if (s >= 60) "${s / 60}m" else "${s}s", style = IslandType.small, color = Ink.warm, maxLines = 1)
+}
+
+/**
+ * The unlock moment, after Face ID on the iPhone: a face glyph (corner brackets, eyes, nose, a smile
+ * that draws itself) that turns into a padlock springing open. Dotted strokes.
+ */
+@Composable
+private fun UnlockGlyph() {
+    val t = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) { t.animateTo(1f, tween(1_450, easing = LinearEasing)) }
+    Canvas(Modifier.size(38.dp)) {
+        val p = t.value
+        val s = size.minDimension
+        val sw = s * 0.06f
+        val dots: androidx.compose.ui.graphics.PathEffect? = null
+        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = sw, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round, pathEffect = dots)
+        val ink = Color.White
+        val faceAlpha = if (p < 0.55f) 1f else (1f - (p - 0.55f) / 0.12f).coerceIn(0f, 1f)
+        val lockAlpha = ((p - 0.6f) / 0.12f).coerceIn(0f, 1f)
+        if (faceAlpha > 0f) {
+            // Brackets breathe inward while it "scans".
+            val scan = if (p < 0.5f) 0.04f * sin(p * 25f) else 0f
+            val m = s * (0.06f + scan)
+            val len = s * 0.24f
+            val r = s * 0.1f
+            fun corner(x: Float, y: Float, dx: Float, dy: Float) {
+                val path = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(x, y + dy * len); lineTo(x, y + dy * r)
+                    quadraticBezierTo(x, y, x + dx * r, y); lineTo(x + dx * len, y)
+                }
+                drawPath(path, ink.copy(alpha = faceAlpha), style = stroke)
+            }
+            corner(m, m, 1f, 1f); corner(s - m, m, -1f, 1f); corner(m, s - m, 1f, -1f); corner(s - m, s - m, -1f, -1f)
+            // Eyes, nose, and a smile that draws itself.
+            drawLine(ink.copy(alpha = faceAlpha), androidx.compose.ui.geometry.Offset(s * 0.36f, s * 0.36f), androidx.compose.ui.geometry.Offset(s * 0.36f, s * 0.44f), sw, androidx.compose.ui.graphics.StrokeCap.Round)
+            drawLine(ink.copy(alpha = faceAlpha), androidx.compose.ui.geometry.Offset(s * 0.64f, s * 0.36f), androidx.compose.ui.geometry.Offset(s * 0.64f, s * 0.44f), sw, androidx.compose.ui.graphics.StrokeCap.Round)
+            val nose = androidx.compose.ui.graphics.Path().apply { moveTo(s * 0.5f, s * 0.38f); lineTo(s * 0.5f, s * 0.56f); lineTo(s * 0.45f, s * 0.56f) }
+            drawPath(nose, ink.copy(alpha = faceAlpha), style = stroke)
+            val smile = ((p - 0.15f) / 0.3f).coerceIn(0f, 1f)
+            if (smile > 0f) drawArc(ink.copy(alpha = faceAlpha), 150f - 120f * smile + 120f, 120f * smile, false,
+                topLeft = androidx.compose.ui.geometry.Offset(s * 0.32f, s * 0.44f), size = androidx.compose.ui.geometry.Size(s * 0.36f, s * 0.24f), style = stroke)
+        }
+        if (lockAlpha > 0f) {
+            val open = ((p - 0.72f) / 0.2f).coerceIn(0f, 1f)
+            val bodyTop = s * 0.48f
+            drawRoundRect(ink.copy(alpha = lockAlpha), topLeft = androidx.compose.ui.geometry.Offset(s * 0.26f, bodyTop), size = androidx.compose.ui.geometry.Size(s * 0.48f, s * 0.36f), cornerRadius = androidx.compose.ui.geometry.CornerRadius(s * 0.08f))
+            // Shackle: the right leg lifts out of the body as it springs open.
+            val lift = s * 0.12f * open
+            val shackle = androidx.compose.ui.graphics.Path().apply {
+                moveTo(s * 0.36f, bodyTop)
+                lineTo(s * 0.36f, s * 0.34f - lift)
+                cubicTo(s * 0.36f, s * 0.16f - lift, s * 0.64f, s * 0.16f - lift, s * 0.64f, s * 0.34f - lift)
+                lineTo(s * 0.64f, s * 0.40f - lift)
+            }
+            drawPath(shackle, ink.copy(alpha = lockAlpha), style = androidx.compose.ui.graphics.drawscope.Stroke(width = sw, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+            drawCircle(Color.Black, s * 0.045f, androidx.compose.ui.geometry.Offset(s * 0.5f, bodyTop + s * 0.16f), alpha = lockAlpha)
+        }
+    }
+}
+
+/**
+ * The vault's face check, with no words: the dotted face brackets breathe and a line sweeps
+ * while the camera looks; a smile draws itself when it's you; a small red shake when it isn't.
+ */
+@Composable
+private fun FaceScanGlyph(face: FaceScan) {
+    val pulse by androidx.compose.animation.core.rememberInfiniteTransition(label = "faceScan").animateFloat(
+        0f, 1f,
+        androidx.compose.animation.core.infiniteRepeatable(tween(850, easing = LinearEasing), androidx.compose.animation.core.RepeatMode.Reverse),
+        label = "pulse",
+    )
+    val t = remember(face) { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(face) { if (face != FaceScan.SCANNING) t.animateTo(1f, tween(650, easing = LinearEasing)) }
+    Canvas(Modifier.size(38.dp)) {
+        val p = t.value
+        val s = size.minDimension
+        val sw = s * 0.06f
+        val dots: androidx.compose.ui.graphics.PathEffect? = null
+        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = sw, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round, pathEffect = dots)
+        val fail = face == FaceScan.FAIL
+        val ink = if (fail) Oos.bad else Color.White
+        val shake = if (fail) (sin(p * 6f * PI.toFloat()) * s * 0.09f * (1f - p)) else 0f
+        val breathe = if (face == FaceScan.SCANNING) 0.035f * pulse else 0f
+        val m = s * (0.06f + breathe)
+        val len = s * 0.24f
+        val r = s * 0.1f
+        fun corner(x: Float, y: Float, dx: Float, dy: Float) {
+            val path = androidx.compose.ui.graphics.Path().apply {
+                moveTo(x + shake, y + dy * len); lineTo(x + shake, y + dy * r)
+                quadraticBezierTo(x + shake, y, x + shake + dx * r, y); lineTo(x + shake + dx * len, y)
+            }
+            drawPath(path, ink, style = stroke)
+        }
+        corner(m, m, 1f, 1f); corner(s - m, m, -1f, 1f); corner(m, s - m, 1f, -1f); corner(s - m, s - m, -1f, -1f)
+        val eyeTop = androidx.compose.ui.geometry.Offset(s * 0.36f + shake, s * 0.36f)
+        drawLine(ink, eyeTop, eyeTop.copy(y = s * 0.44f), sw, androidx.compose.ui.graphics.StrokeCap.Round)
+        drawLine(ink, eyeTop.copy(x = s * 0.64f + shake), androidx.compose.ui.geometry.Offset(s * 0.64f + shake, s * 0.44f), sw, androidx.compose.ui.graphics.StrokeCap.Round)
+        when (face) {
+            FaceScan.SCANNING -> {
+                // A line sweeping down and up the face while the camera looks.
+                val y = s * (0.28f + 0.44f * pulse)
+                drawLine(ink.copy(alpha = 0.7f), androidx.compose.ui.geometry.Offset(s * 0.24f, y), androidx.compose.ui.geometry.Offset(s * 0.76f, y), sw * 0.8f, androidx.compose.ui.graphics.StrokeCap.Round)
+            }
+            FaceScan.OK -> {
+                val smile = p.coerceIn(0f, 1f)
+                if (smile > 0f) drawArc(ink, 150f - 120f * smile + 120f, 120f * smile, false,
+                    topLeft = androidx.compose.ui.geometry.Offset(s * 0.32f, s * 0.44f), size = androidx.compose.ui.geometry.Size(s * 0.36f, s * 0.24f), style = stroke)
+            }
+            FaceScan.FAIL -> drawLine(ink, androidx.compose.ui.geometry.Offset(s * 0.38f + shake, s * 0.62f), androidx.compose.ui.geometry.Offset(s * 0.62f + shake, s * 0.62f), sw, androidx.compose.ui.graphics.StrokeCap.Round)
+            FaceScan.OFF -> Unit
+        }
+    }
+}
+
+/**
+ * A notification, iPhone-style, under the camera: who (the sender's photo when the app gives one, with the app's
+ * badge; else the app's icon), the app, and the first line. Tap or pull down opens it; push it up to put it away.
+ */
+@Composable
+private fun PeekCard(n: ShadeItem) {
+    Row(Modifier.fillMaxSize().padding(start = 12.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(38.dp)) {
+            val face = n.largeIcon
+            Box(Modifier.fillMaxSize().clip(CircleShape).background(Color.White.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+                if (face != null) {
+                    Image(face.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                } else {
+                    n.icon?.let { Image(it.asImageBitmap(), n.appLabel, colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color.White), modifier = Modifier.size(19.dp)) }
+                }
+            }
+            if (face != null && n.icon != null) {
+                Box(
+                    Modifier.align(Alignment.BottomEnd).offset(x = 3.dp, y = 3.dp).size(17.dp).clip(CircleShape).background(Color(0xFF2A2A2A)),
+                    contentAlignment = Alignment.Center,
+                ) { Image(n.icon.asImageBitmap(), null, colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color.White), modifier = Modifier.size(10.dp)) }
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    n.title.ifBlank { n.appLabel }, style = IslandType.title, color = Color.White, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(n.appLabel, style = IslandType.small, color = Ink.tertiary, maxLines = 1)
+            }
+            if (n.text.isNotBlank()) {
+                Text(n.text, style = IslandType.body, color = Ink.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PeekRow(n: ShadeItem) {
+    Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        val icon = n.icon
+        if (icon != null) Image(icon.asImageBitmap(), n.appLabel, colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color.White), modifier = Modifier.size(15.dp))
+        Spacer(Modifier.width(8.dp))
+        val who = n.title.ifBlank { n.appLabel }
+        val line = if (n.text.isBlank()) who else "$who · ${n.text}"
+        Text(line, style = IslandType.label, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun Art(np: NowPlaying, size: androidx.compose.ui.unit.Dp, shape: androidx.compose.ui.graphics.Shape, modifier: Modifier = Modifier) {
+    val art = np.art
+    Box(modifier.size(size).clip(shape).background(Color.White.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) {
+        if (art != null) Image(art.asImageBitmap(), null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+        else Icon(Icons.Rounded.MusicNote, null, tint = Color.White, modifier = Modifier.size(size * 0.6f))
+    }
+}
+
+@Composable
+private fun AudioBars(playing: Boolean, color: Color = Ink.cyan, modifier: Modifier = Modifier) {
+    val inf = rememberInfiniteTransition(label = "bars")
+    val t by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Restart), label = "t")
+    // While music plays, the bars follow the real sound (bass on the left, treble on the right) when Android allows it.
+    val ctx = LocalContext.current
+    var live by remember { mutableStateOf(false) }
+    DisposableEffect(playing) {
+        live = playing && Beat.hold(ctx)
+        onDispose {
+            if (live) Beat.release()
+            live = false
+        }
+    }
+    fun level(i: Int, phase: Float): Float = when {
+        !playing -> 0.25f
+        live -> 0.12f + 0.88f * Beat.levels[i.coerceIn(0, Beat.BANDS - 1)]
+        else -> 0.3f + 0.7f * ((sin(phase) + 1f) / 2f)
+    }
+    Canvas(modifier.width(22.dp).height(16.dp)) {
+        val n = 4
+        val gap = 2.dp.toPx()
+        val bw = (size.width - gap * (n - 1)) / n
+        if (live) Beat.frame
+        for (i in 0 until n) {
+            val frac = level(i, t * 6.283f + i * 1.3f)
+            val bh = size.height * frac
+            drawRoundRect(color, topLeft = androidx.compose.ui.geometry.Offset(i * (bw + gap), size.height - bh), size = androidx.compose.ui.geometry.Size(bw, bh), cornerRadius = androidx.compose.ui.geometry.CornerRadius(bw / 2))
+        }
+    }
+}
+
+/**
+ * Plugging in, for three seconds: a row of Glyph dots fills up to the battery level as the percentage counts up (in
+ * dot-matrix figures), the head dot breathing and the bolt pulsing — then the island settles
+ * into the small charging dots.
+ */
+@Composable
+private fun ChargeMoment(b: BatteryInfo) {
+    val fill = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) { fill.animateTo(1f, tween(1_100, easing = FastOutSlowInEasing)) }
+    val inf = rememberInfiniteTransition(label = "charge")
+    val pulse by inf.animateFloat(0.35f, 1f, infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "pulse")
+    val percent = b.percent.coerceAtLeast(0)
+    val shown = (percent * fill.value).roundToInt()
+    Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            Icons.Rounded.Bolt, null, tint = Ink.good,
+            modifier = Modifier.size(18.dp).graphicsLayer {
+                val sc = 0.9f + 0.15f * pulse
+                scaleX = sc
+                scaleY = sc
+            },
+        )
+        Spacer(Modifier.width(10.dp))
+        Canvas(Modifier.weight(1f).height(10.dp)) {
+            val n = 14
+            val step = size.width / n
+            val r = 2.6.dp.toPx()
+            val lit = percent / 100f * fill.value * n
+            for (i in 0 until n) {
+                val a = when {
+                    i + 1 <= lit -> 1f
+                    i < lit -> 0.3f + 0.7f * pulse
+                    else -> 0.18f
+                }
+                drawCircle(Ink.good.copy(alpha = a), r, Offset(step * (i + 0.5f), size.height / 2))
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            "$shown%",
+            style = IslandType.big,
+            color = Ink.good, maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun EventRow(e: IslandEvent) {
+    val (icon, tint) = when (e.kind) {
+        IslandEvent.Kind.BATTERY_LOW -> Icons.Rounded.BatteryAlert to Ink.bad
+        IslandEvent.Kind.WIFI -> Icons.Rounded.Wifi to Ink.cyan
+        IslandEvent.Kind.BLUETOOTH -> Icons.Rounded.Bluetooth to Ink.blue
+    }
+    Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, null, tint = tint, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(e.text, style = IslandType.label, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun CallRow(a: LiveActivity) {
+    Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Rounded.Call, null, tint = Ink.good, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(a.title.ifBlank { "Call" }, style = IslandType.label, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        Elapsed(a.whenMs)
+    }
+}
+
+@Composable
+private fun ActivityRow(a: LiveActivity) {
+    Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(if (a.kind == LiveActivity.Kind.NAVIGATION) Icons.Rounded.Navigation else Icons.Rounded.HourglassBottom, null, tint = Ink.warm, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(8.dp))
+        if (a.kind == LiveActivity.Kind.TIMER && a.countDown && a.chronometerBase > 0) {
+            // A countdown drains its dots: the time left against how long it had when the island first saw it.
+            val total = remember(a.key) { (a.chronometerBase - System.currentTimeMillis()).coerceAtLeast(1_000L) }
+            var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+            LaunchedEffect(a.key) { while (true) { delay(1_000); now = System.currentTimeMillis() } }
+            DotBar(((a.chronometerBase - now).toFloat() / total).coerceIn(0f, 1f), Ink.warm, Modifier.weight(1f))
+        } else {
+            Text((a.title.ifBlank { a.text }).ifBlank { "Activity" }, style = IslandType.label, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        }
+        if (a.chronometerBase > 0) { Spacer(Modifier.width(6.dp)); Chrono(a.chronometerBase, a.countDown) }
+    }
+}
+
+@Composable
+private fun Elapsed(sinceWallMs: Long) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { delay(1000); now = System.currentTimeMillis() } }
+    val s = ((now - sinceWallMs) / 1000).coerceAtLeast(0)
+    Text("%d:%02d".format(s / 60, s % 60), style = IslandType.label, color = Ink.good)
+}
+
+@Composable
+private fun Chrono(baseWallMs: Long, countDown: Boolean) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) { while (true) { delay(1000); now = System.currentTimeMillis() } }
+    val s = (if (countDown) (baseWallMs - now) else (now - baseWallMs)) / 1000
+    val a = s.coerceAtLeast(0)
+    Text(if (a >= 3600) "%d:%02d:%02d".format(a / 3600, (a % 3600) / 60, a % 60) else "%d:%02d".format(a / 60, a % 60), style = IslandType.label, color = Ink.warm)
+}
+
+/**
+ * Music, small and open, as one piece — the iPhone's trick. [open] follows the island's own spring (0 small, 1 open)
+ * and every part travels with it: the cover grows from its spot beside the camera into the card (a 20 dp circle is a
+ * 10 dp-corner square, so the corner never jumps), the bars stay beside the camera, and the title, buttons and
+ * progress rise in as the card opens. Laid out at the open card's size; the island's shape shows what fits.
+ */
+@Composable
+private fun MusicMorph(np: NowPlaying, open: Float, small: DpSize, cam: androidx.compose.ui.unit.Dp, tint: Color?) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val o = open.coerceIn(0f, 1f)
+        val left = (maxWidth - small.width) / 2
+        Art(
+            np, lerp(20.dp, 44.dp, o), RoundedCornerShape(10.dp),
+            Modifier
+                .offset(lerp(left + 8.dp, 16.dp, o), lerp((small.height - 20.dp) / 2, cam + 6.dp, o))
+                .graphicsLayer { swiped(MusicSwipe.x, size.width * 3) },
+        )
+        AudioBars(np.isPlaying, color = tint ?: Ink.cyan, modifier = Modifier.offset(left + small.width - 30.dp, (small.height - 16.dp) / 2))
+        val reveal = ((open - 0.3f) / 0.5f).coerceIn(0f, 1f)
+        if (reveal > 0f) MusicCard(np, reveal, tint, Modifier.padding(top = cam))
+    }
+}
+
+/** The song being swiped: it follows the finger, fading as it goes. */
+private fun androidx.compose.ui.graphics.GraphicsLayerScope.swiped(x: Float, fadeOver: Float) {
+    translationX = x
+    alpha = (1f - abs(x) / fadeOver).coerceIn(0f, 1f)
+}
+
+/** How far the open music card's song is swiped (px), shared by the island's drag and the card. */
+private object MusicSwipe {
+    var x by mutableFloatStateOf(0f)
+
+    /** Let go: back to its place — or, when it skipped, the next song slides in from the other side. */
+    suspend fun settle(skipped: Boolean, toLeft: Boolean, from: Float) {
+        if (skipped) x = if (toLeft) from else -from
+        androidx.compose.animation.core.animate(x, 0f, animationSpec = spring(dampingRatio = 0.8f, stiffness = 420f)) { v, _ -> x = v }
+    }
+}
+
+/** The open card's words, buttons and progress (the cover is MusicMorph's), coming in with [reveal]. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun MusicCard(np: NowPlaying, reveal: Float, tint: Color?, modifier: Modifier) {
+    var tick by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    LaunchedEffect(np.isPlaying) { while (true) { delay(500); tick = SystemClock.elapsedRealtime() } }
+    val pos = np.livePosition(tick)
+    val frac = if (np.durationMs > 0) (pos.toFloat() / np.durationMs).coerceIn(0f, 1f) else 0f
+    val keys = ((reveal - 0.15f) / 0.85f).coerceIn(0f, 1f)
+    val bar = ((reveal - 0.3f) / 0.7f).coerceIn(0f, 1f)
+    // Wide and short: the song and its buttons on one row, where it's at on the next.
+    Column(modifier.fillMaxSize().padding(start = 16.dp, end = 12.dp, top = 6.dp, bottom = 12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            // The cover's place: it flies in on its own.
+            Spacer(Modifier.size(44.dp))
+            Spacer(Modifier.width(12.dp))
+            Column(
+                Modifier.weight(1f).graphicsLayer {
+                    swiped(MusicSwipe.x, size.width)
+                    alpha *= reveal
+                    translationX += (1f - reveal) * -14.dp.toPx()
+                },
+            ) {
+                Text(np.title, style = IslandType.title, color = Color.White, maxLines = 1, modifier = Modifier.basicMarquee())
+                Text(np.artist, style = IslandType.body, color = Ink.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.width(6.dp))
+            Row(
+                Modifier.graphicsLayer {
+                    alpha = keys
+                    val sc = 0.8f + 0.2f * keys
+                    scaleX = sc
+                    scaleY = sc
+                },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Rounded.SkipPrevious, "Previous", tint = Color.White, modifier = Modifier.size(32.dp).pressable { MediaWatcher.previous() })
+                Spacer(Modifier.width(2.dp))
+                Icon(if (np.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, "Play", tint = Color.White, modifier = Modifier.size(38.dp).pressable { MediaWatcher.toggle() })
+                Spacer(Modifier.width(2.dp))
+                Icon(Icons.Rounded.SkipNext, "Next", tint = Color.White, modifier = Modifier.size(32.dp).pressable { MediaWatcher.next() })
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        Row(
+            Modifier.graphicsLayer {
+                alpha = bar
+                translationY = (1f - bar) * 8.dp.toPx()
+            },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Drag along the bar (or tap it) to jump in the song; it thickens under the finger.
+            var scrub by remember { mutableStateOf<Float?>(null) }
+            val at = scrub ?: frac
+            val shownPos = if (scrub != null) (at * np.durationMs).toLong() else pos
+            val thick by animateDpAsState(if (scrub != null) 8.dp else 4.dp, label = "thick")
+            val times = IslandType.small.copy(fontSize = 10.sp, lineHeight = 12.sp)
+            Text(fmt(shownPos), style = times, color = if (scrub != null) Color.White else Ink.tertiary)
+            Spacer(Modifier.width(8.dp))
+            val fill = tint ?: Color.White
+            Canvas(
+                Modifier
+                    .weight(1f)
+                    .height(22.dp)
+                    .pointerInput(np.durationMs) {
+                        if (np.durationMs <= 0) return@pointerInput
+                        fun x(px: Float) = (px / size.width).coerceIn(0f, 1f)
+                        detectHorizontalDragGestures(
+                            onDragStart = { o -> scrub = x(o.x) },
+                            onDragEnd = {
+                                scrub?.let { MediaWatcher.seekTo((it * np.durationMs).toLong()) }
+                                scrub = null
+                            },
+                            onDragCancel = { scrub = null },
+                        ) { change, _ ->
+                            change.consume()
+                            scrub = x(change.position.x)
+                        }
+                    }
+                    .pointerInput(np.durationMs) {
+                        if (np.durationMs <= 0) return@pointerInput
+                        detectTapGestures { o -> MediaWatcher.seekTo(((o.x / size.width).coerceIn(0f, 1f) * np.durationMs).toLong()) }
+                    },
+            ) {
+                val t = thick.toPx()
+                val y = size.height / 2
+                drawLine(Color.White.copy(alpha = 0.2f), Offset(t / 2, y), Offset(size.width - t / 2, y), t, StrokeCap.Round)
+                val end = t / 2 + (size.width - t) * at
+                drawLine(fill, Offset(t / 2, y), Offset(end, y), t, StrokeCap.Round)
+            }
+            Spacer(Modifier.width(8.dp))
+            Text("-" + fmt((np.durationMs - shownPos).coerceAtLeast(0)), style = times, color = Ink.tertiary)
+        }
+    }
+}
+
+/**
+ * The cover's liveliest colour, lifted so it glows on black: the most colourful hue among its brighter pixels
+ * (weighted by how colourful and bright each is), or null for a grey cover.
+ */
+private fun coverColor(art: Bitmap?): Color? {
+    art ?: return null
+    val small = runCatching { Bitmap.createScaledBitmap(art, 24, 24, true) }.getOrNull() ?: return null
+    val weight = FloatArray(12)
+    val sums = Array(12) { FloatArray(3) }
+    val hsv = FloatArray(3)
+    for (y in 0 until small.height) for (x in 0 until small.width) {
+        val c = small.getPixel(x, y)
+        android.graphics.Color.colorToHSV(c, hsv)
+        if (hsv[1] < 0.25f || hsv[2] < 0.25f) continue
+        val b = (hsv[0] / 30f).toInt().coerceIn(0, 11)
+        val wgt = hsv[1] * hsv[2]
+        weight[b] += wgt
+        sums[b][0] += android.graphics.Color.red(c) * wgt
+        sums[b][1] += android.graphics.Color.green(c) * wgt
+        sums[b][2] += android.graphics.Color.blue(c) * wgt
+    }
+    val best = weight.indices.maxByOrNull { weight[it] } ?: return null
+    if (weight[best] < 4f) return null
+    val w = weight[best]
+    android.graphics.Color.RGBToHSV((sums[best][0] / w).toInt(), (sums[best][1] / w).toInt(), (sums[best][2] / w).toInt(), hsv)
+    hsv[1] = hsv[1].coerceIn(0.45f, 0.85f)
+    hsv[2] = hsv[2].coerceAtLeast(0.9f)
+    return Color(android.graphics.Color.HSVToColor(hsv))
+}
+
+private fun fmt(ms: Long): String { val s = ms / 1000; return "%d:%02d".format(s / 60, s % 60) }
+
+/** Progress as a row of dots: lit up to [fraction]; with no fraction, a light runs along it. */
+@Composable
+private fun DotBar(fraction: Float?, color: Color, modifier: Modifier = Modifier) {
+    val sweep = if (fraction == null) {
+        rememberInfiniteTransition(label = "dots").animateFloat(
+            0f, 1f, infiniteRepeatable(tween(1_100, easing = LinearEasing)), label = "sweep",
+        ).value
+    } else 0f
+    Canvas(modifier.height(8.dp)) {
+        val step = 9.dp.toPx()
+        val n = (size.width / step).toInt().coerceIn(3, 16)
+        val r = 2.2.dp.toPx()
+        val start = (size.width - step * n) / 2
+        for (i in 0 until n) {
+            val lit = if (fraction == null) (1f - abs(i / (n - 1f) - sweep) * 3f).coerceIn(0.22f, 1f)
+            else if ((i + 0.5f) / n <= fraction) 1f else 0.22f
+            drawCircle(color.copy(alpha = lit), r, Offset(start + step * (i + 0.5f), size.height / 2))
+        }
+    }
+}
+
+/** A download, upload or install: its dots filling up, and how far along. */
+@Composable
+private fun ProgressRow(a: LiveActivity) {
+    Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Rounded.Download, null, tint = Ink.cyan, modifier = Modifier.size(15.dp))
+        Spacer(Modifier.width(8.dp))
+        DotBar(a.fraction, Ink.cyan, Modifier.weight(1f))
+        Spacer(Modifier.width(8.dp))
+        Text(a.fraction?.let { "${(it * 100).roundToInt()}%" } ?: "", style = IslandType.label, color = Ink.cyan, maxLines = 1)
+    }
+}
+
+/** Charging, as long as it's plugged in: the battery as dots filling up. */
+@Composable
+private fun ChargeRow(b: BatteryInfo) {
+    Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Rounded.Bolt, null, tint = Ink.good, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(8.dp))
+        DotBar(if (b.percent >= 0) b.percent / 100f else null, Ink.good, Modifier.weight(1f))
+        Spacer(Modifier.width(8.dp))
+        Text(if (b.percent >= 0) "${b.percent}%" else "", style = IslandType.label, color = Ink.good, maxLines = 1)
+    }
+}
+
+/** In the notch: [left] and [right] either side of the camera ([gap] wide), within the status bar. */
+@Composable
+private fun SplitRow(gap: androidx.compose.ui.unit.Dp, left: @Composable RowScope.() -> Unit, right: @Composable RowScope.() -> Unit) {
+    Row(Modifier.fillMaxSize().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) { left() }
+        Spacer(Modifier.width(gap))
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) { right() }
+    }
+}
+
+@Composable
+private fun CallSplit(a: LiveActivity, gap: androidx.compose.ui.unit.Dp) = SplitRow(
+    gap,
+    left = { Icon(Icons.Rounded.Call, null, tint = Ink.good, modifier = Modifier.size(14.dp)) },
+    right = { Elapsed(a.whenMs) },
+)
+
+@Composable
+private fun ActivitySplit(a: LiveActivity, gap: androidx.compose.ui.unit.Dp) = SplitRow(
+    gap,
+    left = {
+        Icon(if (a.kind == LiveActivity.Kind.NAVIGATION) Icons.Rounded.Navigation else Icons.Rounded.HourglassBottom, null, tint = Ink.warm, modifier = Modifier.size(13.dp))
+        if (a.kind == LiveActivity.Kind.TIMER && a.countDown && a.chronometerBase > 0) {
+            Spacer(Modifier.width(4.dp))
+            val total = remember(a.key) { (a.chronometerBase - System.currentTimeMillis()).coerceAtLeast(1_000L) }
+            var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+            LaunchedEffect(a.key) { while (true) { delay(1_000); now = System.currentTimeMillis() } }
+            DotBar(((a.chronometerBase - now).toFloat() / total).coerceIn(0f, 1f), Ink.warm, Modifier.weight(1f))
+        }
+    },
+    right = {
+        if (a.chronometerBase > 0) MiniChrono(a.chronometerBase, a.countDown)
+        else Text(a.title.ifBlank { a.text }, style = IslandType.small, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    },
+)
+
+@Composable
+private fun ProgressSplit(a: LiveActivity, gap: androidx.compose.ui.unit.Dp) = SplitRow(
+    gap,
+    left = {
+        Icon(Icons.Rounded.Download, null, tint = Ink.cyan, modifier = Modifier.size(13.dp))
+        Spacer(Modifier.width(4.dp))
+        DotBar(a.fraction, Ink.cyan, Modifier.weight(1f))
+    },
+    right = { Text(a.fraction?.let { "${(it * 100).roundToInt()}%" } ?: "", style = IslandType.small, color = Ink.cyan, maxLines = 1) },
+)
+
+@Composable
+private fun ChargeSplit(b: BatteryInfo, gap: androidx.compose.ui.unit.Dp) = SplitRow(
+    gap,
+    left = {
+        Icon(Icons.Rounded.Bolt, null, tint = Ink.good, modifier = Modifier.size(13.dp))
+        Spacer(Modifier.width(4.dp))
+        DotBar(if (b.percent >= 0) b.percent / 100f else null, Ink.good, Modifier.weight(1f))
+    },
+    right = { Text(if (b.percent >= 0) "${b.percent}%" else "", style = IslandType.small, color = Ink.good, maxLines = 1) },
+)
