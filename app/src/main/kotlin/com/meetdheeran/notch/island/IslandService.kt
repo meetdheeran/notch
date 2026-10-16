@@ -27,6 +27,7 @@ import com.meetdheeran.notch.core.Settings
 import com.meetdheeran.notch.overlay.BackgroundNotice
 import com.meetdheeran.notch.overlay.OverlayHost
 import com.meetdheeran.notch.quick.QuickActions
+import com.meetdheeran.notch.buds.BudsScanner
 import com.meetdheeran.notch.quick.QuickStates
 import com.meetdheeran.notch.quick.QuickTile
 import com.meetdheeran.notch.ui.NotchTheme
@@ -177,6 +178,7 @@ class IslandService : Service() {
         charging = ChargingWatcher(this).also { it.start() }
         MediaWatcher.start(this)
         QuickActions.start(this)
+        BudsScanner.start(this)
         scope.launch { QuickActions.states.collect { q -> state.value = state.value.copy(quickStates = q) } }
         val ch = charging!!
         // Low battery: one pop when crossing 15% while unplugged.
@@ -611,6 +613,7 @@ class IslandService : Service() {
         hide()
         host?.destroy()
         charging?.stop()
+        BudsScanner.stop(this)
         wifiCallback?.let { runCatching { getSystemService(android.net.ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
         btReceiver?.let { runCatching { unregisterReceiver(it) } }
         hotspotReceiver?.let { runCatching { unregisterReceiver(it) } }

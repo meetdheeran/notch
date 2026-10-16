@@ -14,6 +14,8 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- Earbuds connected, and their battery. -->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- Earbuds' case opening: their Fast Pair adverts carry left / right / case battery. Never used for location. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
     <!-- Optional: the music bars follow the real sound (Android's visualiser asks for this; the mic is never used). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />

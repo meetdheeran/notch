@@ -72,7 +72,10 @@ import kotlin.math.roundToInt
 class MainActivity : ComponentActivity() {
     private val askNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
     private val askAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    private val askBluetooth = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    private val askBluetooth = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        // The scanner starts with the island; start it now that it may.
+        com.meetdheeran.notch.buds.BudsScanner.start(this)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -97,7 +100,10 @@ class MainActivity : ComponentActivity() {
         val listener = remember(resumes) { MediaWatcher.hasAccess(this) }
         val access = remember(resumes) { accessibilityOn() }
         val shizuku = remember(resumes) { ShizukuBridge.refresh() }
-        val bluetooth = remember(resumes) { checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == android.content.pm.PackageManager.PERMISSION_GRANTED }
+        val bluetooth = remember(resumes) {
+            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
         val audio = remember(resumes) { checkSelfPermission(Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED }
         LaunchedEffect(s.enabled, overlay, access) { if (s.enabled && (overlay || access)) IslandService.start(this@MainActivity) }
 
@@ -162,8 +168,8 @@ class MainActivity : ComponentActivity() {
                 Divider()
                 Toggle("Wi-Fi, Bluetooth and battery", "A three-second pop: connected, low battery, fully charged", s.showEvents) { v -> set { it.copy(showEvents = v) } }
                 Divider()
-                Toggle("Earbuds", "When they connect, with their battery", s.showEarbuds && bluetooth) { v ->
-                    if (v && !bluetooth) askBluetooth.launch(Manifest.permission.BLUETOOTH_CONNECT)
+                Toggle("Earbuds", "When they connect, and their battery when you open the case", s.showEarbuds && bluetooth) { v ->
+                    if (v && !bluetooth) askBluetooth.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN))
                     set { it.copy(showEarbuds = v) }
                 }
                 Divider()
