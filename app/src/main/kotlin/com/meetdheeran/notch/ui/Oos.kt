@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.sp
  * - Type: [FontFamily.Default] is the system typeface, which on a OnePlus is OnePlus Sans — so the island and the
  *   settings use the phone's own font (and follow it if the person changes the system font) without bundling one.
  * - Colour: OxygenOS 12 has no Material You; it keeps its own accent. [accent] starts as the OxygenOS default and is
- *   replaced at start-up by what the phone actually uses (see SystemAccent).
+ *   replaced at start-up by what the phone actually uses (see SystemAccent: on the OnePlus 7 it was #4F67D2).
  * - Shapes: big rounded cards (the quick-settings tiles are ~22 dp corners), springy, slightly long motion.
  */
 object Oos {

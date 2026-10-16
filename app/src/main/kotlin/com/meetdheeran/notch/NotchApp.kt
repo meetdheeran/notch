@@ -3,6 +3,7 @@ package com.meetdheeran.notch
 import android.app.Application
 import com.meetdheeran.notch.core.Prefs
 import com.meetdheeran.notch.shizuku.ShizukuBridge
+import com.meetdheeran.notch.ui.SystemAccent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -12,6 +13,7 @@ class NotchApp : Application() {
         super.onCreate()
         prefs = Prefs(this)
         ShizukuBridge.init(this)
+        SystemAccent.start(this)
     }
 
     companion object {

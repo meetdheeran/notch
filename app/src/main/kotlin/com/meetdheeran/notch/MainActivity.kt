@@ -78,6 +78,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+        passStayAwake(intent)
         setContent { NotchTheme { Screen() } }
     }
 
@@ -200,6 +201,18 @@ class MainActivity : ComponentActivity() {
             }
             Spacer(Modifier.height(40.dp))
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        passStayAwake(intent)
+    }
+
+    /** Test builds: `adb shell am start -n com.meetdheeran.notch/.MainActivity --ez stayAwake true` (false to stop). */
+    private fun passStayAwake(i: Intent?) {
+        if (i?.hasExtra(IslandService.EXTRA_STAY_AWAKE) != true || !BuildConfig.DEBUG) return
+        val on = i.getBooleanExtra(IslandService.EXTRA_STAY_AWAKE, false)
+        androidx.core.content.ContextCompat.startForegroundService(this, Intent(this, IslandService::class.java).putExtra(IslandService.EXTRA_STAY_AWAKE, on))
     }
 
     private fun accessibilityOn(): Boolean {

@@ -291,6 +291,7 @@ class IslandService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) { stopSelf(); return START_NOT_STICKY }
+        if (intent?.hasExtra(EXTRA_STAY_AWAKE) == true && com.meetdheeran.notch.BuildConfig.DEBUG) setStayAwake(intent.getBooleanExtra(EXTRA_STAY_AWAKE, false))
         return START_STICKY
     }
 
@@ -432,12 +433,18 @@ class IslandService : Service() {
             height = ((cutoutHeightDp() + STAGE_DP) * resources.displayMetrics.density).roundToInt(),
             gravity = Gravity.TOP, touchable = false,
             type = WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-        ).apply { layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS }
+        ).apply {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            if (stayAwake) flags = flags or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        }
     } else {
         OverlayHost.params(
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL, focusable = false, y = offsetPx,
             type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-        ).apply { if (expanded) flags = flags or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH }
+        ).apply {
+            if (expanded) flags = flags or WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
+            if (stayAwake) flags = flags or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+        }
     }
 
     private fun show() {
@@ -517,6 +524,30 @@ class IslandService : Service() {
         }
     }
 
+    // ------------------------------------------------------------ debug: keep the phone awake during adb tests
+
+    private var stayAwake = false
+    private var stayAwakeJob: Job? = null
+
+    /**
+     * Test builds only: the island's window keeps the screen on (FLAG_KEEP_SCREEN_ON), for 3 hours at most and only while
+     * plugged in — so the phone doesn't lock mid-test. A window flag, not a wake lock: OxygenOS force-releases a
+     * background app's wake locks, but not a visible window's flag. In the notch the island's window is always there.
+     */
+    private fun setStayAwake(on: Boolean) {
+        stayAwake = on
+        stayAwakeJob?.cancel()
+        if (on) stayAwakeJob = scope.launch {
+            val until = SystemClock.elapsedRealtime() + 3 * 60 * 60 * 1000L
+            while (SystemClock.elapsedRealtime() < until) {
+                delay(30_000)
+                if (charging?.connectedAt?.value == 0L && charging?.info?.value?.charging != true) break
+            }
+            setStayAwake(false)
+        }
+        if (showing) host?.update(params(watchingOutside))
+    }
+
     // ------------------------------------------------------------ Bluetooth: earbuds and their battery
 
     /** The earbuds that just connected, and when — their battery usually arrives a moment after. */
@@ -591,6 +622,8 @@ class IslandService : Service() {
 
     companion object {
         const val ACTION_STOP = "stop"
+        /** Passed on by MainActivity: `adb shell am start -n com.meetdheeran.notch/.MainActivity --ez stayAwake true` */
+        const val EXTRA_STAY_AWAKE = "stayAwake"
         private const val PRISM = "com.meetdheeran.prism"
         private const val PRISM_ASSISTANT = "com.meetdheeran.prism.OPEN_ASSISTANT"
         /** In the notch, how far down the island's window reaches below the camera: its tallest card, with room to spare. */

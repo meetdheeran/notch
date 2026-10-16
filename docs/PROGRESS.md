@@ -4,8 +4,8 @@ Plan and decisions: [PLAN.md](PLAN.md). Built in checkpointed parts; each ends b
 
 | Part | What | State |
 |---|---|---|
-| 1 | Read the system font + accent off the phone | waiting for the phone (font already follows the system via FontFamily.Default) |
-| 2 | New app + island in the notch, OxygenOS look | **built 2026-10-16, not yet on the phone** |
+| 1 | Read the system font + accent off the phone | **done 2026-10-16**: font OPlusSans 2.0 (SysSans-En-Regular.ttf = system sans-serif, used via FontFamily.Default); accent Settings.Secure `sysui_type_accent_color` (#ff4f67d2 here) |
+| 2 | New app + island in the notch, OxygenOS look | **on the phone 2026-10-16**: in the notch, charging dots showing; Prism's island switched off |
 | 3 | Live extras: earbuds + battery, screen recording / hotspot, low battery + charging done | **built 2026-10-16, not yet on the phone** |
 | 4 | Quick actions panel (tap the idle island) | **built 2026-10-16, not yet on the phone** |
 | 5 | Vault: 4 taps → face → hidden apps | todo — hooks `onKnock`, `setFace`, `watchOutsideTaps` ready |
@@ -43,3 +43,9 @@ Plan and decisions: [PLAN.md](PLAN.md). Built in checkpointed parts; each ends b
 - Bluetooth: `cmd bluetooth_manager enable|disable` through Shizuku; else BluetoothAdapter.enable() (still allowed on 12).
 - Torch: CameraManager.setTorchMode, state from TorchCallback (so it also follows the system tile).
 - Shizuku bridge ported from Prism (UserService "notch-shell"); setup step "Allow Notch in Shizuku".
+
+## Testing tips
+- Keep awake (test builds): `adb shell am start -n com.meetdheeran.notch/.MainActivity --ez stayAwake true`
+  (the island window gets FLAG_KEEP_SCREEN_ON, 3 h max, stops on unplug). Morse's trick no longer works —
+  Home is back on the OnePlus launcher, so Morse's HomeEntry alias is disabled.
+- adb output ends lines with : pipe through `tr -d ''` before `grep -x`.

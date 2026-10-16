@@ -8,11 +8,14 @@ Replaces Morse (launcher dropped) and takes the island out of Prism. Must look l
 - Music on the island stays — "music works, nothing wrong".
 - Quick actions (3A): tap the island → panel: torch, Wi-Fi, Bluetooth, camera, timer, ask Prism.
 - Live extras: earbuds + battery (5A), screen recording / hotspot (5C), low battery + charging done (5D). More later from Dheer.
-- Hidden apps: truly gone — not in the launcher, and **Play Store shows them as not installed** until unhidden in Notch.
-  Hidden apps get no notifications (accepted, 2A).
-  Method (Shizuku, shell uid): `pm uninstall -k --user 0 <pkg>` (keeps data + APK) and restore with
-  `cmd package install-existing <pkg>`. Fallback if that misbehaves: `pm disable-user --user 0`.
-  MUST be proven on a throwaway app first (data kept? restore works? Play Store shows "Install"?).
+- Hidden apps: gone from the launcher and app drawer until unlocked in Notch. Hidden apps get no notifications
+  (accepted, 2A). **Method (decided 2026-10-16 after testing on Ledger Demo, Dheer picked A):**
+  `pm disable-user --user 0 <pkg>` to hide, `pm enable --user 0 <pkg>` to restore — via Shizuku.
+  Tested: hidden → restore + open in 392 ms, data byte-identical.
+  The "not installed in Play Store" method (`pm uninstall -k --user 0` + `cmd package install-existing`) was
+  REJECTED: it hid fine and kept data, but on OxygenOS 12 the restore said "installed for user 0" and did nothing the
+  second time (`--wait` hung); only reinstalling the APK brought it back. Too risky for real apps.
+  Trade-off told to Dheer: the Play Store shows a hidden app as disabled ("Enable"), not "not installed".
 - Unlock flow (Dheer's words): notch 4 taps → face scan, 2 tries. If both fail, the face glyph stays on the island
   until a tap elsewhere. Tap the face 3 times → one more face try → if that fails, the PIN pad opens automatically.
   Pass → hidden apps grid; picked app is restored, opened, and re-hidden when he leaves it.
