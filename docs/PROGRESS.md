@@ -8,7 +8,7 @@ Plan and decisions: [PLAN.md](PLAN.md). Built in checkpointed parts; each ends b
 | 2 | New app + island in the notch, OxygenOS look | **on the phone 2026-10-16**: in the notch, charging dots showing; Prism's island switched off |
 | 3 | Live extras: earbuds + battery, screen recording / hotspot, low battery + charging done | **built 2026-10-16, not yet on the phone** |
 | 4 | Quick actions panel (tap the idle island) | **built 2026-10-16, not yet on the phone** |
-| 5 | Vault: 4 taps → face → hidden apps | todo — hooks `onKnock`, `setFace`, `watchOutsideTaps` ready |
+| 5 | Vault: 4 taps → face → hidden apps | **paused 2026-10-16 — to be picked up in a fresh chat** (see Vault handoff) |
 | 6 | Settings / controls | basic screen done in part 2 |
 | 7 | Retire Morse | todo |
 
@@ -48,4 +48,18 @@ Plan and decisions: [PLAN.md](PLAN.md). Built in checkpointed parts; each ends b
 - Keep awake (test builds): `adb shell am start -n com.meetdheeran.notch/.MainActivity --ez stayAwake true`
   (the island window gets FLAG_KEEP_SCREEN_ON, 3 h max, stops on unplug). Morse's trick no longer works —
   Home is back on the OnePlus launcher, so Morse's HomeEntry alias is disabled.
-- adb output ends lines with : pipe through `tr -d ''` before `grep -x`.
+- adb output ends lines with 
+: pipe through `tr -d '
+'` before `grep -x`.
+
+## Vault handoff (for a fresh chat)
+- Decided: hide = Shizuku `pm disable-user --user 0`, restore = `pm enable --user 0` (tested on Ledger Demo, see PLAN.md).
+  Unlock flow is in PLAN.md (4 taps → face, 2 tries → face stays on island → 3 taps on it → 1 more try → PIN).
+- Hooks ready in IslandService: `onKnock`, `onOutsideTap`, `setFace(FaceScan)`, `watchOutsideTaps()`;
+  NotchAccessibility.foreground tells which app is in front (to re-hide on leave).
+- `vault-wip/` (git-ignored) holds Morse's face engine copied over (package renamed to com.meetdheeran.notch.face,
+  PeepWatch dropped) and the 4 face models. NOT yet adapted: FaceScreens.kt still uses MorseColors/MorseFonts,
+  PrismIsland broadcasts and the old two-strikes FaceCheck; FaceStore ALIAS is still "morse_face". Needs, in Notch's
+  build.gradle.kts: CameraX 1.3.4, mediapipe tasks-vision 0.10.20, onnxruntime-android 1.20.0, noCompress for
+  tflite/onnx/task, and Morse's fetchFaceModels task (SHA-256 checked) instead of committing the models.
+- The vault UI needs an Activity (camera can't start from a background service on Android 12).
