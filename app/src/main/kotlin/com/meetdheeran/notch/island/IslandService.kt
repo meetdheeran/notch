@@ -46,7 +46,7 @@ enum class FaceScan { OFF, SCANNING, OK, FAIL }
 
 /** A 3-second pop: low battery, Wi-Fi or Bluetooth connected. */
 data class IslandEvent(val kind: Kind, val text: String, val at: Long) {
-    enum class Kind { BATTERY_LOW, WIFI, BLUETOOTH }
+    enum class Kind { BATTERY_LOW, FULL, WIFI, BLUETOOTH, EARBUDS }
 }
 
 /** What the island is showing. One "focus" at a time, priority: call > charging bloom > timer/nav > media. */
@@ -150,6 +150,8 @@ class IslandService : Service() {
     private var wifiCallback: android.net.ConnectivityManager.NetworkCallback? = null
     private var unlockReceiver: BroadcastReceiver? = null
     private var btReceiver: BroadcastReceiver? = null
+    private var hotspotReceiver: BroadcastReceiver? = null
+    private val hotspot = MutableStateFlow(false)
     /** Whether the window currently asks for taps outside it (only while a closable card is up). */
     private var watchingOutside = false
     private var collapseJob: Job? = null
@@ -171,10 +173,15 @@ class IslandService : Service() {
         // Low battery: one pop when crossing 15% while unplugged.
         scope.launch {
             var wasLow = false
+            var wasFull = true
             ch.info.collect { b ->
                 val low = b.percent in 1..15 && !b.charging
                 if (low && !wasLow) events.value = IslandEvent(IslandEvent.Kind.BATTERY_LOW, "Battery low · ${b.percent}%", SystemClock.elapsedRealtime())
                 wasLow = low
+                // Charging done: once, when it reaches 100% on the cable.
+                val full = b.charging && b.percent >= 100
+                if (full && !wasFull) events.value = IslandEvent(IslandEvent.Kind.FULL, "Fully charged", SystemClock.elapsedRealtime())
+                wasFull = full || !b.charging
             }
         }
         // Wi-Fi joined (ignore the callback that fires for an already-connected network at registration).
@@ -189,12 +196,25 @@ class IslandService : Service() {
         // Bluetooth device connected.
         btReceiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context, i: Intent) {
-                @Suppress("DEPRECATION") val dev = i.getParcelableExtra<android.bluetooth.BluetoothDevice>(android.bluetooth.BluetoothDevice.EXTRA_DEVICE)
-                val name = runCatching { dev?.name }.getOrNull().orEmpty()
-                events.value = IslandEvent(IslandEvent.Kind.BLUETOOTH, if (name.isBlank()) "Bluetooth connected" else "Connected · $name", SystemClock.elapsedRealtime())
+                @Suppress("DEPRECATION") val dev = i.getParcelableExtra<android.bluetooth.BluetoothDevice>(android.bluetooth.BluetoothDevice.EXTRA_DEVICE) ?: return
+                when (i.action) {
+                    android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED -> btConnected(dev)
+                    ACTION_BATTERY_LEVEL_CHANGED -> earbudsBattery(dev, i.getIntExtra(EXTRA_BATTERY_LEVEL, -1))
+                }
             }
         }
-        ContextCompat.registerReceiver(this, btReceiver!!, IntentFilter(android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED), ContextCompat.RECEIVER_EXPORTED)
+        ContextCompat.registerReceiver(
+            this, btReceiver!!,
+            IntentFilter().apply { addAction(android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED); addAction(ACTION_BATTERY_LEVEL_CHANGED) },
+            ContextCompat.RECEIVER_EXPORTED,
+        )
+        // The hotspot, as a live thing while it's on.
+        hotspotReceiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context, i: Intent) {
+                hotspot.value = i.getIntExtra("wifi_state", 0) == WIFI_AP_STATE_ENABLED
+            }
+        }
+        ContextCompat.registerReceiver(this, hotspotReceiver!!, IntentFilter(ACTION_WIFI_AP_STATE_CHANGED), ContextCompat.RECEIVER_EXPORTED)
         scope.launch { NotchListener.peek.collect { peeks.value = it to SystemClock.elapsedRealtime() } }
         state.value = state.value.copy(landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE)
         // With Notch's accessibility switch on, the island moves into the notch (above the status bar).
@@ -211,7 +231,7 @@ class IslandService : Service() {
         }
         registerReceiver(unlockReceiver, IntentFilter(Intent.ACTION_USER_PRESENT))
         scope.launch {
-            combine(NotchApp.prefs.settings, MediaWatcher.now, NotchListener.activities, ch.info, ch.connectedAt) { s: Settings, np, acts, bat, at ->
+            combine(NotchApp.prefs.settings, MediaWatcher.now, NotchListener.activities.combine(hotspot) { a, on -> if (on) a + HOTSPOT_LIVE else a }, ch.info, ch.connectedAt) { s: Settings, np, acts, bat, at ->
                 IslandState(
                     media = if (s.showMedia) np else null,
                     activity = liveOnes(acts, s).firstOrNull(),
@@ -321,13 +341,16 @@ class IslandService : Service() {
         when (a.kind) {
             LiveActivity.Kind.CALL -> s.showCalls
             LiveActivity.Kind.TIMER, LiveActivity.Kind.NAVIGATION, LiveActivity.Kind.PROGRESS -> s.showTimers
+            LiveActivity.Kind.RECORDING, LiveActivity.Kind.HOTSPOT -> s.showSystem
         }
     }.sortedBy {
         when (it.kind) {
             LiveActivity.Kind.CALL -> 0
-            LiveActivity.Kind.NAVIGATION -> 1
-            LiveActivity.Kind.TIMER -> 2
-            LiveActivity.Kind.PROGRESS -> 3
+            LiveActivity.Kind.RECORDING -> 1
+            LiveActivity.Kind.NAVIGATION -> 2
+            LiveActivity.Kind.TIMER -> 3
+            LiveActivity.Kind.HOTSPOT -> 4
+            LiveActivity.Kind.PROGRESS -> 5
         }
     }
 
@@ -340,6 +363,7 @@ class IslandService : Service() {
                     packageManager.getLaunchIntentForPackage(pkg)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)?.let { startActivity(it) }
                 }
                 "charge" -> startActivity(Intent(Intent.ACTION_POWER_USAGE_SUMMARY).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                HOTSPOT_LIVE.key -> startActivity(Intent("android.settings.TETHER_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 else -> s.activities.firstOrNull { it.key == key }?.contentIntent?.send()
             }
         }
@@ -454,6 +478,37 @@ class IslandService : Service() {
         }
     }
 
+    // ------------------------------------------------------------ Bluetooth: earbuds and their battery
+
+    /** The earbuds that just connected, and when — their battery usually arrives a moment after. */
+    private var earbuds: Pair<String, Long>? = null
+
+    private fun btConnected(dev: android.bluetooth.BluetoothDevice) {
+        val name = runCatching { dev.name }.getOrNull().orEmpty()
+        val audio = runCatching { dev.bluetoothClass?.majorDeviceClass == android.bluetooth.BluetoothClass.Device.Major.AUDIO_VIDEO }.getOrDefault(false)
+        val now = SystemClock.elapsedRealtime()
+        if (audio && lastSettings.showEarbuds) {
+            earbuds = dev.address to now
+            events.value = IslandEvent(IslandEvent.Kind.EARBUDS, earbudsText(name, batteryOf(dev)), now)
+        } else {
+            events.value = IslandEvent(IslandEvent.Kind.BLUETOOTH, if (name.isBlank()) "Bluetooth connected" else "Connected · $name", now)
+        }
+    }
+
+    /** Their battery came in (or changed) within a few seconds of connecting: the pop shows it. */
+    private fun earbudsBattery(dev: android.bluetooth.BluetoothDevice, level: Int) {
+        val (address, at) = earbuds ?: return
+        if (dev.address != address || level < 0 || SystemClock.elapsedRealtime() - at > 8_000) return
+        val name = runCatching { dev.name }.getOrNull().orEmpty()
+        events.value = IslandEvent(IslandEvent.Kind.EARBUDS, earbudsText(name, level), SystemClock.elapsedRealtime())
+    }
+
+    private fun earbudsText(name: String, level: Int) = name.ifBlank { "Earbuds" } + if (level in 0..100) " · $level%" else ""
+
+    /** BluetoothDevice.getBatteryLevel() is hidden (but app-usable) on Android 12; -1 when it isn't known yet. */
+    private fun batteryOf(dev: android.bluetooth.BluetoothDevice): Int =
+        runCatching { dev.javaClass.getMethod("getBatteryLevel").invoke(dev) as Int }.getOrDefault(-1)
+
     // ------------------------------------------------------------ for the vault and the quick actions
 
     /** Another part of Notch wants taps outside the island reported (a panel is open). */
@@ -488,6 +543,7 @@ class IslandService : Service() {
         charging?.stop()
         wifiCallback?.let { runCatching { getSystemService(android.net.ConnectivityManager::class.java).unregisterNetworkCallback(it) } }
         btReceiver?.let { runCatching { unregisterReceiver(it) } }
+        hotspotReceiver?.let { runCatching { unregisterReceiver(it) } }
         unlockReceiver?.let { runCatching { unregisterReceiver(it) } }
         scope.cancel()
         BackgroundNotice.stop(this)
@@ -500,6 +556,18 @@ class IslandService : Service() {
         private const val PRISM_ASSISTANT = "com.meetdheeran.prism.OPEN_ASSISTANT"
         /** In the notch, how far down the island's window reaches below the camera: its tallest card, with room to spare. */
         private const val STAGE_DP = 320f
+
+        // Hidden-but-sent broadcasts: the hotspot turning on/off, and a Bluetooth device's battery.
+        private const val ACTION_WIFI_AP_STATE_CHANGED = "android.net.wifi.WIFI_AP_STATE_CHANGED"
+        private const val WIFI_AP_STATE_ENABLED = 13
+        private const val ACTION_BATTERY_LEVEL_CHANGED = "android.bluetooth.device.action.BATTERY_LEVEL_CHANGED"
+        private const val EXTRA_BATTERY_LEVEL = "android.bluetooth.device.extra.BATTERY_LEVEL"
+
+        /** The hotspot as a live thing (it has no notification of its own to read). */
+        private val HOTSPOT_LIVE = LiveActivity(
+            key = "hotspot", packageName = "android", kind = LiveActivity.Kind.HOTSPOT, title = "Hotspot",
+            text = "", whenMs = 0L, chronometerBase = 0L, countDown = false, contentIntent = null,
+        )
 
         /** The running service, for the vault and the quick actions. */
         @Volatile var running: IslandService? = null

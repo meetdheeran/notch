@@ -70,6 +70,7 @@ import kotlin.math.roundToInt
 class MainActivity : ComponentActivity() {
     private val askNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
     private val askAudio = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    private val askBluetooth = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -92,6 +93,7 @@ class MainActivity : ComponentActivity() {
         val overlay = remember(resumes) { OverlayHost.canDrawOverlays(this) }
         val listener = remember(resumes) { MediaWatcher.hasAccess(this) }
         val access = remember(resumes) { accessibilityOn() }
+        val bluetooth = remember(resumes) { checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == android.content.pm.PackageManager.PERMISSION_GRANTED }
         val audio = remember(resumes) { checkSelfPermission(Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED }
         LaunchedEffect(s.enabled, overlay, access) { if (s.enabled && (overlay || access)) IslandService.start(this@MainActivity) }
 
@@ -146,7 +148,14 @@ class MainActivity : ComponentActivity() {
                 Divider()
                 Toggle("Notifications", "New ones drip out of the notch for a moment", s.showNotifications) { v -> set { it.copy(showNotifications = v) } }
                 Divider()
-                Toggle("Wi-Fi, Bluetooth and low battery", "A three-second pop", s.showEvents) { v -> set { it.copy(showEvents = v) } }
+                Toggle("Wi-Fi, Bluetooth and battery", "A three-second pop: connected, low battery, fully charged", s.showEvents) { v -> set { it.copy(showEvents = v) } }
+                Divider()
+                Toggle("Earbuds", "When they connect, with their battery", s.showEarbuds && bluetooth) { v ->
+                    if (v && !bluetooth) askBluetooth.launch(Manifest.permission.BLUETOOTH_CONNECT)
+                    set { it.copy(showEarbuds = v) }
+                }
+                Divider()
+                Toggle("Screen recording and hotspot", "A red dot and the time while recording; the hotspot while it's on", s.showSystem) { v -> set { it.copy(showSystem = v) } }
             }
             Spacer(Modifier.height(20.dp))
 

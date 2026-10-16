@@ -59,6 +59,9 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
 import androidx.compose.material.icons.rounded.Wifi
+import androidx.compose.material.icons.rounded.WifiTethering
+import androidx.compose.material.icons.rounded.Headphones
+import androidx.compose.material.icons.rounded.BatteryFull
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -586,7 +589,7 @@ private fun BubbleIcon(live: Live, state: IslandState, size: androidx.compose.ui
         Live.Charge -> Icon(Icons.Rounded.Bolt, null, tint = Ink.good, modifier = Modifier.size(14.dp))
         is Live.Act -> when (live.a.kind) {
             LiveActivity.Kind.CALL -> Icon(Icons.Rounded.Call, null, tint = Ink.good, modifier = Modifier.size(14.dp))
-            LiveActivity.Kind.NAVIGATION -> Icon(Icons.Rounded.Navigation, null, tint = Ink.warm, modifier = Modifier.size(14.dp))
+            LiveActivity.Kind.NAVIGATION, LiveActivity.Kind.HOTSPOT, LiveActivity.Kind.RECORDING -> KindIcon(live.a, 14.dp)
             LiveActivity.Kind.TIMER ->
                 if (live.a.chronometerBase > 0) MiniChrono(live.a.chronometerBase, live.a.countDown)
                 else Icon(Icons.Rounded.HourglassBottom, null, tint = Ink.warm, modifier = Modifier.size(14.dp))
@@ -594,6 +597,26 @@ private fun BubbleIcon(live: Live, state: IslandState, size: androidx.compose.ui
                 Text(live.a.fraction?.let { "${(it * 100).roundToInt()}" } ?: "\u2026", style = IslandType.small, color = Ink.cyan, maxLines = 1)
         }
     }
+}
+
+/** The small sign for a live thing: a red recording dot that breathes, the hotspot, navigation, a timer. */
+@Composable
+private fun KindIcon(a: LiveActivity, size: androidx.compose.ui.unit.Dp) {
+    when (a.kind) {
+        LiveActivity.Kind.RECORDING -> {
+            val pulse by rememberInfiniteTransition(label = "rec").animateFloat(0.45f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "recPulse")
+            Canvas(Modifier.size(size)) { drawCircle(Ink.bad.copy(alpha = pulse), this.size.minDimension * 0.32f) }
+        }
+        LiveActivity.Kind.HOTSPOT -> Icon(Icons.Rounded.WifiTethering, null, tint = Ink.cyan, modifier = Modifier.size(size))
+        LiveActivity.Kind.NAVIGATION -> Icon(Icons.Rounded.Navigation, null, tint = Ink.warm, modifier = Modifier.size(size))
+        else -> Icon(Icons.Rounded.HourglassBottom, null, tint = Ink.warm, modifier = Modifier.size(size))
+    }
+}
+
+private fun activityLabel(a: LiveActivity): String = when (a.kind) {
+    LiveActivity.Kind.HOTSPOT -> a.title.ifBlank { "Hotspot" }
+    LiveActivity.Kind.RECORDING -> "Recording"
+    else -> (a.title.ifBlank { a.text }).ifBlank { "Activity" }
 }
 
 /** How far the liquid drop's fall is (of its whole run) before the card starts growing out of it. */
@@ -917,6 +940,8 @@ private fun EventRow(e: IslandEvent) {
         IslandEvent.Kind.BATTERY_LOW -> Icons.Rounded.BatteryAlert to Ink.bad
         IslandEvent.Kind.WIFI -> Icons.Rounded.Wifi to Ink.cyan
         IslandEvent.Kind.BLUETOOTH -> Icons.Rounded.Bluetooth to Ink.blue
+        IslandEvent.Kind.EARBUDS -> Icons.Rounded.Headphones to Ink.blue
+        IslandEvent.Kind.FULL -> Icons.Rounded.BatteryFull to Ink.good
     }
     Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = tint, modifier = Modifier.size(16.dp))
@@ -938,7 +963,7 @@ private fun CallRow(a: LiveActivity) {
 @Composable
 private fun ActivityRow(a: LiveActivity) {
     Row(Modifier.fillMaxSize().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(if (a.kind == LiveActivity.Kind.NAVIGATION) Icons.Rounded.Navigation else Icons.Rounded.HourglassBottom, null, tint = Ink.warm, modifier = Modifier.size(16.dp))
+        KindIcon(a, 16.dp)
         Spacer(Modifier.width(8.dp))
         if (a.kind == LiveActivity.Kind.TIMER && a.countDown && a.chronometerBase > 0) {
             // A countdown drains its dots: the time left against how long it had when the island first saw it.
@@ -947,7 +972,7 @@ private fun ActivityRow(a: LiveActivity) {
             LaunchedEffect(a.key) { while (true) { delay(1_000); now = System.currentTimeMillis() } }
             DotBar(((a.chronometerBase - now).toFloat() / total).coerceIn(0f, 1f), Ink.warm, Modifier.weight(1f))
         } else {
-            Text((a.title.ifBlank { a.text }).ifBlank { "Activity" }, style = IslandType.label, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(activityLabel(a), style = IslandType.label, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         }
         if (a.chronometerBase > 0) { Spacer(Modifier.width(6.dp)); Chrono(a.chronometerBase, a.countDown) }
     }
@@ -1204,7 +1229,7 @@ private fun CallSplit(a: LiveActivity, gap: androidx.compose.ui.unit.Dp) = Split
 private fun ActivitySplit(a: LiveActivity, gap: androidx.compose.ui.unit.Dp) = SplitRow(
     gap,
     left = {
-        Icon(if (a.kind == LiveActivity.Kind.NAVIGATION) Icons.Rounded.Navigation else Icons.Rounded.HourglassBottom, null, tint = Ink.warm, modifier = Modifier.size(13.dp))
+        KindIcon(a, 13.dp)
         if (a.kind == LiveActivity.Kind.TIMER && a.countDown && a.chronometerBase > 0) {
             Spacer(Modifier.width(4.dp))
             val total = remember(a.key) { (a.chronometerBase - System.currentTimeMillis()).coerceAtLeast(1_000L) }
@@ -1215,7 +1240,7 @@ private fun ActivitySplit(a: LiveActivity, gap: androidx.compose.ui.unit.Dp) = S
     },
     right = {
         if (a.chronometerBase > 0) MiniChrono(a.chronometerBase, a.countDown)
-        else Text(a.title.ifBlank { a.text }, style = IslandType.small, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        else Text(activityLabel(a), style = IslandType.small, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
     },
 )
 

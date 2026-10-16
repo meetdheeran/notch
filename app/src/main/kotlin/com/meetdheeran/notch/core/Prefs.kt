@@ -21,8 +21,12 @@ data class Settings(
     val showCalls: Boolean = true,
     val showTimers: Boolean = true,
     val showNotifications: Boolean = true,
-    /** Wi-Fi / Bluetooth joined, battery low: three-second pops. */
+    /** Wi-Fi / Bluetooth joined, battery low, fully charged: three-second pops. */
     val showEvents: Boolean = true,
+    /** Screen recording (red dot + time) and the hotspot, while they're on. */
+    val showSystem: Boolean = true,
+    /** Earbuds connecting, with their battery. */
+    val showEarbuds: Boolean = true,
     /** Two live things at once: the island plus a bubble beside it. */
     val split: Boolean = true,
     /** The Face-ID-style moment after unlocking the phone. */
@@ -45,6 +49,8 @@ class Prefs(private val ctx: Context) {
         val timers = booleanPreferencesKey("timers")
         val notifications = booleanPreferencesKey("notifications")
         val events = booleanPreferencesKey("events")
+        val system = booleanPreferencesKey("system")
+        val earbuds = booleanPreferencesKey("earbuds")
         val split = booleanPreferencesKey("split")
         val unlock = booleanPreferencesKey("unlock_glyph")
         val haptics = booleanPreferencesKey("haptics")
@@ -68,6 +74,8 @@ class Prefs(private val ctx: Context) {
             p[K.timers] = s.showTimers
             p[K.notifications] = s.showNotifications
             p[K.events] = s.showEvents
+            p[K.system] = s.showSystem
+            p[K.earbuds] = s.showEarbuds
             p[K.split] = s.split
             p[K.unlock] = s.unlockGlyph
             p[K.haptics] = s.haptics
@@ -88,6 +96,8 @@ class Prefs(private val ctx: Context) {
             showTimers = this[K.timers] ?: d.showTimers,
             showNotifications = this[K.notifications] ?: d.showNotifications,
             showEvents = this[K.events] ?: d.showEvents,
+            showSystem = this[K.system] ?: d.showSystem,
+            showEarbuds = this[K.earbuds] ?: d.showEarbuds,
             split = this[K.split] ?: d.split,
             unlockGlyph = this[K.unlock] ?: d.unlockGlyph,
             haptics = this[K.haptics] ?: d.haptics,
