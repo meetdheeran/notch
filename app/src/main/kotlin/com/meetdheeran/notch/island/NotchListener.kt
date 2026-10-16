@@ -26,7 +26,9 @@ class NotchListener : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
         runCatching { activeNotifications?.forEach { observe(it); observeOrdinary(it, fresh = false) } }
-        MediaWatcher.refresh()
+        // start, not refresh: if the island hasn't started the watcher yet, a refresh would do nothing, and if the
+        // island started it before this listener was connected, its first look was refused. Either way, look now.
+        MediaWatcher.start(applicationContext)
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {

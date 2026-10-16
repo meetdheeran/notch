@@ -8,6 +8,7 @@ import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.SystemClock
+import android.util.Log
 import androidx.core.app.NotificationManagerCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,6 +38,7 @@ data class NowPlaying(
 }
 
 object MediaWatcher {
+    private const val TAG = "NotchMedia"
     private val _now = MutableStateFlow<NowPlaying?>(null)
     val now: StateFlow<NowPlaying?> = _now
 
@@ -76,11 +78,13 @@ object MediaWatcher {
             }
             pick(m.getActiveSessions(c))
         } catch (e: SecurityException) {
+            Log.w(TAG, "no access to media sessions yet", e)
             _now.value = null
         }
     }
 
     private fun pick(list: List<MediaController>) {
+        Log.d(TAG, "sessions: " + list.joinToString { "${it.packageName}=${it.playbackState?.state}" })
         val best = list.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
             ?: list.firstOrNull { it.metadata != null }
         if (best != null && best.sessionToken == controller?.sessionToken) {
