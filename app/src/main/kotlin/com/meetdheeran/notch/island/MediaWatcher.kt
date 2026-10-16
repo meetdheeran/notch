@@ -47,10 +47,24 @@ object MediaWatcher {
     private var controller: MediaController? = null
     private var sessionsListenerRegistered = false
 
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /**
+     * Look again a little later. Spotify replaces its media session now and then (after a pause, on switching between
+     * the buds and the speaker): for a moment there's no session, then a new one that's still "connecting" with no song.
+     * Looking only at that moment left the island empty while music played, so look again shortly after.
+     */
+    private val recheck = Runnable { refresh() }
+    private fun recheckSoon() {
+        main.removeCallbacks(recheck)
+        main.postDelayed(recheck, 1_500)
+        main.postDelayed({ refresh() }, 4_000)
+    }
+
     private val controllerCallback = object : MediaController.Callback() {
         override fun onMetadataChanged(metadata: MediaMetadata?) = publish()
         override fun onPlaybackStateChanged(state: PlaybackState?) = publish()
-        override fun onSessionDestroyed() { detach(); refresh() }
+        override fun onSessionDestroyed() { Log.d(TAG, "session ended"); detach(); refresh(); recheckSoon() }
     }
 
     private val sessionsListener = MediaSessionManager.OnActiveSessionsChangedListener { list ->
@@ -91,6 +105,8 @@ object MediaWatcher {
             publish()
             return
         }
+        // Nothing usable yet (no session, or one with no song): look again shortly.
+        if (best == null || best.metadata == null) recheckSoon()
         detach()
         controller = best?.also { it.registerCallback(controllerCallback) }
         publish()
@@ -115,7 +131,7 @@ object MediaWatcher {
     private fun publish() {
         val c = controller
         val meta = c?.metadata
-        if (c == null || meta == null) { _now.value = null; return }
+        if (c == null || meta == null) { _now.value = null; if (c != null) recheckSoon(); return }
         val state = c.playbackState
 
         val title = meta.getString(MediaMetadata.METADATA_KEY_TITLE).orEmpty()
@@ -126,7 +142,10 @@ object MediaWatcher {
             ?: meta.getBitmap(MediaMetadata.METADATA_KEY_ART)
             ?: NotchListener.artFor(c.packageName)
 
-        if (title.isBlank() && artist.isBlank()) { _now.value = null; return }
+        if (title.isBlank() && artist.isBlank()) { _now.value = null; recheckSoon(); return }
+        if (_now.value?.title != title || _now.value?.isPlaying != (state?.state == PlaybackState.STATE_PLAYING)) {
+            Log.d(TAG, "now: ${c.packageName} \"$title\" state=${state?.state}")
+        }
 
         _now.value = NowPlaying(
             title = title,
