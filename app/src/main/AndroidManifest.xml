@@ -20,6 +20,12 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
+    <!-- The vault: the front camera for the face check (only while it runs), the phone's own PIN as the fallback, and
+         the list of apps to hide (Android 11+ hides other apps from an app without this). -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
 
     <queries>
         <package android:name="com.meetdheeran.prism" />

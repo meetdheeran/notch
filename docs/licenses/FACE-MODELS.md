@@ -1,8 +1,8 @@
 # Face unlock models
 
-Morse's face unlock runs three open models on the phone. None of them is kept in this repository: the build
-downloads them into `app/src/main/assets/models/` (see `fetchFaceModels` in `app/build.gradle.kts`, which checks
-each file's SHA-256) and they ship inside the APK. No photo or print leaves the phone.
+Notch's face unlock (ported from Morse) runs three open models on the phone. None is kept in this repository: the build
+puts them in `app/src/main/assets/models/` (`fetchFaceModels` in `app/build.gradle.kts`: copied from Morse's checkout or downloaded, each checked
+by SHA-256) and they ship inside the APK. No photo or print leaves the phone.
 
 | File | What it does | Source | Licence |
 |---|---|---|---|

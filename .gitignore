@@ -22,5 +22,5 @@ keystore.properties
 Thumbs.db
 desktop.ini
 
-# Vault work in progress (face engine copied from Morse + 110 MB models), kept out of the build
-vault-wip/
+# Face unlock's models (110 MB): fetched by the build (fetchFaceModels), not kept in git
+app/src/main/assets/models/
