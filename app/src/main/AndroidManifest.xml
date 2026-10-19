@@ -51,6 +51,16 @@
             </intent-filter>
         </activity>
 
+        <!-- The vault: see-through while the face check runs (the island shows it), then the hidden apps as a sheet.
+             Also the face setup and test screens. -->
+        <activity
+            android:name=".vault.VaultActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.Notch.Vault" />
+
         <!-- Owns the island. Foreground so OxygenOS doesn't freeze it. -->
         <service
             android:name=".island.IslandService"

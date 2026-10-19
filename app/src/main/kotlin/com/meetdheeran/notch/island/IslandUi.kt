@@ -760,7 +760,8 @@ private fun UnlockGlyph() {
 
 /**
  * The vault's face check, with no words: the dotted face brackets breathe and a line sweeps
- * while the camera looks; a smile draws itself when it's you; a small red shake when it isn't.
+ * while the camera looks; a smile draws itself when it's you; a small red shake when it isn't;
+ * and after both tries, a still, dimmed face that waits (a tap elsewhere clears it, three on it try once more).
  */
 @Composable
 private fun FaceScanGlyph(face: FaceScan) {
@@ -778,7 +779,8 @@ private fun FaceScanGlyph(face: FaceScan) {
         val dots: androidx.compose.ui.graphics.PathEffect? = null
         val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = sw, cap = androidx.compose.ui.graphics.StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Round, pathEffect = dots)
         val fail = face == FaceScan.FAIL
-        val ink = if (fail) Oos.bad else Color.White
+        val held = face == FaceScan.HELD
+        val ink = when { fail -> Oos.bad; held -> Color.White.copy(alpha = 0.75f); else -> Color.White }
         val shake = if (fail) (sin(p * 6f * PI.toFloat()) * s * 0.09f * (1f - p)) else 0f
         val breathe = if (face == FaceScan.SCANNING) 0.035f * pulse else 0f
         val m = s * (0.06f + breathe)
@@ -806,7 +808,8 @@ private fun FaceScanGlyph(face: FaceScan) {
                 if (smile > 0f) drawArc(ink, 150f - 120f * smile + 120f, 120f * smile, false,
                     topLeft = androidx.compose.ui.geometry.Offset(s * 0.32f, s * 0.44f), size = androidx.compose.ui.geometry.Size(s * 0.36f, s * 0.24f), style = stroke)
             }
-            FaceScan.FAIL -> drawLine(ink, androidx.compose.ui.geometry.Offset(s * 0.38f + shake, s * 0.62f), androidx.compose.ui.geometry.Offset(s * 0.62f + shake, s * 0.62f), sw, androidx.compose.ui.graphics.StrokeCap.Round)
+            // Not you: a flat mouth; held, the same, still.
+            FaceScan.FAIL, FaceScan.HELD -> drawLine(ink, androidx.compose.ui.geometry.Offset(s * 0.38f + shake, s * 0.62f), androidx.compose.ui.geometry.Offset(s * 0.62f + shake, s * 0.62f), sw, androidx.compose.ui.graphics.StrokeCap.Round)
             FaceScan.OFF -> Unit
         }
     }

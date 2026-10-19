@@ -32,6 +32,8 @@ data class Settings(
     /** The Face-ID-style moment after unlocking the phone. */
     val unlockGlyph: Boolean = true,
     val haptics: Boolean = true,
+    /** The vault's face unlock keeps up with your look (glasses, a haircut, other light) — FaceLearner. */
+    val faceLearn: Boolean = true,
     /** Animation speed, 0.6 (calm) to 1.6 (snappy). */
     val speed: Float = 1f,
     /** Without the accessibility switch the island floats as a pill under the status bar: its size and drop. */
@@ -54,6 +56,7 @@ class Prefs(private val ctx: Context) {
         val split = booleanPreferencesKey("split")
         val unlock = booleanPreferencesKey("unlock_glyph")
         val haptics = booleanPreferencesKey("haptics")
+        val faceLearn = booleanPreferencesKey("face_learn")
         val speed = floatPreferencesKey("speed")
         val pillW = intPreferencesKey("pill_w")
         val pillH = intPreferencesKey("pill_h")
@@ -79,6 +82,7 @@ class Prefs(private val ctx: Context) {
             p[K.split] = s.split
             p[K.unlock] = s.unlockGlyph
             p[K.haptics] = s.haptics
+            p[K.faceLearn] = s.faceLearn
             p[K.speed] = s.speed
             p[K.pillW] = s.pillExtraWidthDp
             p[K.pillH] = s.pillExtraHeightDp
@@ -101,6 +105,7 @@ class Prefs(private val ctx: Context) {
             split = this[K.split] ?: d.split,
             unlockGlyph = this[K.unlock] ?: d.unlockGlyph,
             haptics = this[K.haptics] ?: d.haptics,
+            faceLearn = this[K.faceLearn] ?: d.faceLearn,
             speed = this[K.speed] ?: d.speed,
             pillExtraWidthDp = this[K.pillW] ?: d.pillExtraWidthDp,
             pillExtraHeightDp = this[K.pillH] ?: d.pillExtraHeightDp,

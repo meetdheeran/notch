@@ -50,8 +50,11 @@ const val BUDS_MS = 6_000L
 
 data class BatteryInfo(val percent: Int = -1, val charging: Boolean = false)
 
-/** The face check on the island (the vault's): scanning, then it's you (ok) or it isn't (fail). */
-enum class FaceScan { OFF, SCANNING, OK, FAIL }
+/**
+ * The face check on the island (the vault's): scanning, then it's you (ok) or it isn't (fail); held when both tries
+ * failed — the face stays, still, until a tap elsewhere (or three on it for one more try).
+ */
+enum class FaceScan { OFF, SCANNING, OK, FAIL, HELD }
 
 /** A 3-second pop: low battery, Wi-Fi or Bluetooth connected. */
 data class IslandEvent(val kind: Kind, val text: String, val at: Long) {
@@ -116,11 +119,11 @@ data class IslandState(
     val showPeek: Boolean get() = peek != null && SystemClock.elapsedRealtime() - peekAt < 3_500
     val showBuds: Boolean get() = buds != null && budsAt > 0 && SystemClock.elapsedRealtime() - budsAt < BUDS_MS
     val showUnlock: Boolean get() = unlockAt > 0 && SystemClock.elapsedRealtime() - unlockAt < 1_700
-    /** Scanning shows until the vault says otherwise (12 s at most); ok / fail for a moment. */
-    val showFace: Boolean get() = face != FaceScan.OFF &&
-        SystemClock.elapsedRealtime() - faceAt < (if (face == FaceScan.SCANNING) 12_000 else 1_400)
-    /** Cards that close when you tap anywhere else on the screen. */
-    val wantsOutsideTaps: Boolean get() = expanded || quick
+    /** Scanning shows until the vault says otherwise (12 s at most); ok / fail for a moment; held until a tap elsewhere. */
+    val showFace: Boolean get() = face == FaceScan.HELD || (face != FaceScan.OFF &&
+        SystemClock.elapsedRealtime() - faceAt < (if (face == FaceScan.SCANNING) 12_000 else 1_400))
+    /** Cards that close when you tap anywhere else on the screen (and the held face, which goes away then). */
+    val wantsOutsideTaps: Boolean get() = expanded || quick || face == FaceScan.HELD
     val hasContent: Boolean get() = (notch && !landscape) || quick || showBuds || activities.isNotEmpty() || chargingLive || showFace || showUnlock ||
         media != null || activity != null || showChargeBloom || showEvent || showPeek
 }
@@ -348,19 +351,29 @@ class IslandService : Service() {
         sync()
     }
 
-    /** Every tap on the island counts towards the knock: four quick ones open the secret door. */
+    /**
+     * Every tap on the island counts towards the knock: four quick ones open the secret door. The vault has first
+     * refusal: while its face is on the island the taps are its (three on a held face = one more try). On the third
+     * tap of a knock the vault is told, so it can load its face models before the fourth.
+     */
     private fun tapped() {
-        if (knock.tap(SystemClock.uptimeMillis())) knocked()
+        val now = SystemClock.uptimeMillis()
+        if (onIslandTap?.invoke(this, now) == true) { knock.reset(); return }
+        if (knock.tap(now)) knocked() else if (knock.pending == KNOCK_NEAR) onKnockNear?.invoke(this)
     }
 
-    /** Four taps: the secret door. The vault (face check → hidden apps) plugs in here. */
+    /** Four taps: the secret door. The vault (face check → hidden apps) plugs in here; whatever card was open closes. */
     private fun knocked() {
         Haptics.heavy(this)
+        if (state.value.quick) setQuick(false)
+        if (state.value.expanded) setExpanded(false)
         onKnock?.invoke(this)
     }
 
     /** One tap on the idle island, with no second one after it: the quick actions panel plugs in here. */
     private fun quickTap() {
+        // The face is on the island: a tap on it is the vault's business, never the quick panel.
+        if (state.value.showFace) return
         onQuickTap?.let { it(this); return }
         setQuick(!state.value.quick)
     }
@@ -641,12 +654,16 @@ class IslandService : Service() {
         refreshOutsideWatch()
     }
 
-    /** Shows the face check on the island; it stays until set to [FaceScan.OFF] (or 12 s while scanning). */
+    /**
+     * Shows the face check on the island: scanning until set otherwise (12 s at most), ok / fail for a moment, held
+     * until set to [FaceScan.OFF] — while held, taps outside the island are watched (a tap elsewhere clears it).
+     */
     fun setFace(face: FaceScan) {
         val at = SystemClock.elapsedRealtime()
         state.value = state.value.copy(face = face, faceAt = at)
         sync()
-        if (face == FaceScan.OFF) return
+        refreshOutsideWatch()
+        if (face == FaceScan.OFF || face == FaceScan.HELD) return
         scope.launch {
             delay(if (face == FaceScan.SCANNING) 12_100 else 1_500)
             if (state.value.faceAt == at) {
@@ -699,8 +716,16 @@ class IslandService : Service() {
         @Volatile var running: IslandService? = null
             private set
 
-        /** Hooks other parts of Notch fill in: four taps, a single tap on the idle island, a tap outside. */
+        /** The tap of a knock on which [onKnockNear] is called (the vault loads its face models then). */
+        private const val KNOCK_NEAR = 3
+
+        /**
+         * Hooks other parts of Notch fill in: four taps, the third of them, every tap (uptime ms; true = taken, so it's
+         * neither part of a knock nor a single tap), a single tap on the idle island, a tap outside.
+         */
         var onKnock: ((IslandService) -> Unit)? = null
+        var onKnockNear: ((IslandService) -> Unit)? = null
+        var onIslandTap: ((IslandService, Long) -> Boolean)? = null
         var onQuickTap: ((IslandService) -> Unit)? = null
         var onOutsideTap: ((IslandService) -> Unit)? = null
 

@@ -19,4 +19,8 @@ class TapCounter(private val needed: Int = 4, private val windowMs: Long = 1_500
 
     @Synchronized
     fun reset() = taps.clear()
+
+    /** Taps so far towards the next knock. */
+    val pending: Int
+        @Synchronized get() = taps.size
 }
