@@ -57,6 +57,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.meetdheeran.notch.access.NotchAccessibility
 import com.meetdheeran.notch.core.Settings
+import com.meetdheeran.notch.face.FaceStore
+import com.meetdheeran.notch.face.cameraAllowed
 import com.meetdheeran.notch.island.IslandService
 import com.meetdheeran.notch.island.MediaWatcher
 import com.meetdheeran.notch.overlay.BackgroundNotice
@@ -66,6 +68,9 @@ import com.meetdheeran.notch.shizuku.ShizukuState
 import com.meetdheeran.notch.ui.NotchTheme
 import com.meetdheeran.notch.ui.Oos
 import com.meetdheeran.notch.ui.pressable
+import com.meetdheeran.notch.vault.Vault
+import com.meetdheeran.notch.vault.VaultActivity
+import com.meetdheeran.notch.vault.VaultStore
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -111,6 +116,9 @@ class MainActivity : ComponentActivity() {
                 checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) == android.content.pm.PackageManager.PERMISSION_GRANTED
         }
         val audio = remember(resumes) { checkSelfPermission(Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED }
+        val enrolled = remember(resumes) { FaceStore.enrolled(this) }
+        val camera = remember(resumes) { cameraAllowed(this) }
+        val hidden by VaultStore.apps.collectAsStateWithLifecycle()
         LaunchedEffect(s.enabled, overlay, access) { if (s.enabled && (overlay || access)) IslandService.start(this@MainActivity) }
 
         fun set(change: (Settings) -> Settings) { NotchApp.scope.launch { NotchApp.prefs.update(change) } }
@@ -202,6 +210,40 @@ class MainActivity : ComponentActivity() {
             }
             Spacer(Modifier.height(20.dp))
 
+            Header("Hidden apps")
+            Card {
+                NavRow(
+                    "Hidden apps",
+                    when {
+                        hidden.isEmpty() -> "None yet. Tap the island four times, or here, then + to hide one"
+                        else -> "${hidden.size} hidden \u00B7 tap the island four times, or here"
+                    } + if (shizuku != ShizukuState.READY) ". Needs Shizuku" else "",
+                ) { Vault.open(this@MainActivity) }
+                Divider()
+                NavRow(
+                    if (enrolled) "Face set up" else "Set up your face",
+                    when {
+                        !enrolled -> "The knock looks for you through the front camera; without a face it goes straight to the PIN pad"
+                        !camera -> "Tap to set it up again. The camera permission is off, so the knock goes to the PIN pad for now"
+                        else -> "Tap to set it up again"
+                    },
+                ) { VaultActivity.open(this@MainActivity, VaultActivity.Mode.SETUP) }
+                if (enrolled) {
+                    Divider()
+                    NavRow("Test face unlock", "Says whether it knows the face in front of it, without opening anything") {
+                        VaultActivity.open(this@MainActivity, VaultActivity.Mode.TEST)
+                    }
+                    Divider()
+                    Toggle("Keeps up with your look", "Learns glasses, a haircut or other light from the times it lets you in", s.faceLearn) { v -> set { it.copy(faceLearn = v) } }
+                    Divider()
+                    NavRow("Forget my face", "The knock goes to the PIN pad until a face is set up again", danger = true) {
+                        FaceStore.remove(this@MainActivity)
+                        resumes++
+                    }
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+
             Card {
                 Row(
                     Modifier.fillMaxWidth().pressable(scaleDown = 0.98f) { BackgroundNotice.openChannelSettings(this@MainActivity) }
@@ -278,6 +320,22 @@ private fun Toggle(title: String, detail: String?, on: Boolean, onChange: (Boole
                 uncheckedBorderColor = MaterialTheme.colorScheme.surfaceVariant,
             ),
         )
+    }
+}
+
+/** A row that opens something: a title, a line under it, and a chevron. */
+@Composable
+private fun NavRow(title: String, detail: String, danger: Boolean = false, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().pressable(scaleDown = 0.98f, onClick = onClick).padding(start = 18.dp, end = 14.dp, top = 14.dp, bottom = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 16.sp, color = if (danger) Oos.bad else MaterialTheme.colorScheme.onSurface)
+            Text(detail, fontSize = 13.sp, lineHeight = 17.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.width(12.dp))
+        Text("\u203A", fontSize = 22.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
