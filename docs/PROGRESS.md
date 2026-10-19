@@ -48,9 +48,7 @@ Plan and decisions: [PLAN.md](PLAN.md). Built in checkpointed parts; each ends b
 - Keep awake (test builds): `adb shell am start -n com.meetdheeran.notch/.MainActivity --ez stayAwake true`
   (the island window gets FLAG_KEEP_SCREEN_ON, 3 h max, stops on unplug). Morse's trick no longer works —
   Home is back on the OnePlus launcher, so Morse's HomeEntry alias is disabled.
-- adb output ends lines with 
-: pipe through `tr -d '
-'` before `grep -x`.
+- adb output ends lines with a carriage return: pipe through `tr -d ''` before `grep -x`.
 
 ## Vault handoff (for a fresh chat)
 - Decided: hide = Shizuku `pm disable-user --user 0`, restore = `pm enable --user 0` (tested on Ledger Demo, see PLAN.md).
@@ -72,3 +70,10 @@ Plan and decisions: [PLAN.md](PLAN.md). Built in checkpointed parts; each ends b
 - Shizuku was being killed in the background (OplusHansManager). Asked Dheer to set Shizuku and Notch to
   "Don't optimise" in Battery optimisation. Shizuku: Notch authorised via Shizuku → Authorized applications.
 - 4 taps: counted (heavy haptic) but opens nothing until the vault is built.
+
+## Tested 2026-10-16 → 10-19 (Dheer)
+- Music on the island: fixed twice — media watcher now starts when the listener connects, and re-checks when Spotify
+  swaps its media session. Dheer: "everything works nice now" (pause/play, skips, buds ↔ speaker, Echo Music).
+- Buds card (CMF Buds Pro 2): Fast Pair advert battery field 0x33/0x34, left/right/case decoded; card drops out of
+  the notch when the case opens, names the connected pair, optional gallery picture. Works.
+- Not on GitHub by Dheer's choice ("for now it will be on my device").
