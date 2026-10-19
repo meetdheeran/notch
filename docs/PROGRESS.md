@@ -48,7 +48,7 @@ Plan and decisions: [PLAN.md](PLAN.md). Built in checkpointed parts; each ends b
 - Keep awake (test builds): `adb shell am start -n com.meetdheeran.notch/.MainActivity --ez stayAwake true`
   (the island window gets FLAG_KEEP_SCREEN_ON, 3 h max, stops on unplug). Morse's trick no longer works —
   Home is back on the OnePlus launcher, so Morse's HomeEntry alias is disabled.
-- adb output ends lines with a carriage return: pipe through `tr -d ''` before `grep -x`.
+- adb output ends lines with a carriage return: pipe through `tr -d '\r'` before `grep -x`.
 
 ## Vault handoff (for a fresh chat)
 - Decided: hide = Shizuku `pm disable-user --user 0`, restore = `pm enable --user 0` (tested on Ledger Demo, see PLAN.md).
