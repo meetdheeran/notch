@@ -67,6 +67,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.roundToInt
 import kotlin.math.sin
 
@@ -150,10 +151,11 @@ fun FaceCheck(
         return
     }
     BackHandler(onBack = onCancel)
+    val lastLog = remember { longArrayOf(0L) }
     FaceCamera(preview = false) { frame, time ->
-        val s = current ?: return@FaceCamera
         if (done.get()) return@FaceCamera
-        s.feed(frame, time) { read ->
+        val s = current
+        val look = s?.feed(frame, time) { read ->
             if (done.get()) return@feed
             val print = read.print
             val match = print?.let { FaceMath.bestMatch(it, saved.all) }
@@ -173,6 +175,12 @@ fun FaceCheck(
                 FaceJudge.State.NOT_YOU, FaceJudge.State.SPOOF, FaceJudge.State.UNSURE -> fail()
                 FaceJudge.State.LOOKING -> Unit
             }
+        }
+        // Once a second: what the camera sees, so a check that reads nothing can be understood from the log.
+        if (time - lastLog[0] > 1_000) {
+            lastLog[0] = time
+            val eyes = look?.face?.let { f -> FaceGeometry.eyes(f.xs, f.ys).let { e -> hypot(e[2] - e[0], e[3] - e[1]).roundToInt() } }
+            Log.d(TAG, if (look == null) "check $attempt/$tries: waiting for the models" else "check $attempt/$tries: ${frame.width}x${frame.height}, ${look.faces} face(s), eyes ${eyes ?: "-"} px apart")
         }
     }
 }
