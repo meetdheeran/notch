@@ -10,7 +10,7 @@ Plan and decisions: [PLAN.md](PLAN.md). Built in checkpointed parts; each ends b
 | 4 | Quick actions panel (tap the idle island) | **tested on the phone 2026-10-16**: torch on/off, Wi-Fi + Bluetooth via Shizuku, Timer — all work (Dheer) |
 | 5 | Vault: 4 taps → face → hidden apps | **tested on the phone 2026-10-22 (Dheer)**: face pass, the whole fail path to the PIN pad, hide / open / re-hide / unhide — all work (Part 5 notes) |
 | 6 | Settings / controls | basic screen done in part 2; the Hidden apps card (face setup / test / learn / forget) added 2026-10-19 |
-| 7 | Retire Morse | todo |
+| 7 | Retire Morse | **done 2026-10-22**: Home was already the OnePlus launcher; Morse uninstalled from the phone |
 
 ## Part 2 notes
 - Ported from Prism's island (commit c17d5cd): notch tab, music morph + card, live activities, split bubbles,
@@ -111,4 +111,4 @@ Plan and decisions: [PLAN.md](PLAN.md). Built in checkpointed parts; each ends b
   swaps its media session. Dheer: "everything works nice now" (pause/play, skips, buds ↔ speaker, Echo Music).
 - Buds card (CMF Buds Pro 2): Fast Pair advert battery field 0x33/0x34, left/right/case decoded; card drops out of
   the notch when the case opens, names the connected pair, optional gallery picture. Works.
-- Not on GitHub by Dheer's choice ("for now it will be on my device").
+- On GitHub since 2026-10-22: https://github.com/meetdheeran/notch (public, like Morse). The face models stay out of git.
