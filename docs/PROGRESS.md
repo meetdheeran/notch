@@ -8,7 +8,7 @@ Plan and decisions: [PLAN.md](PLAN.md). Built in checkpointed parts; each ends b
 | 2 | New app + island in the notch, OxygenOS look | **on the phone 2026-10-16**: in the notch, charging dots showing; Prism's island switched off |
 | 3 | Live extras: earbuds + battery, screen recording / hotspot, low battery + charging done | **built 2026-10-16, not yet on the phone** |
 | 4 | Quick actions panel (tap the idle island) | **tested on the phone 2026-10-16**: torch on/off, Wi-Fi + Bluetooth via Shizuku, Timer — all work (Dheer) |
-| 5 | Vault: 4 taps → face → hidden apps | **built 2026-10-19, not yet on the phone** (see Part 5 notes) |
+| 5 | Vault: 4 taps → face → hidden apps | **tested on the phone 2026-10-22 (Dheer)**: face pass, the whole fail path to the PIN pad, hide / open / re-hide / unhide — all work (Part 5 notes) |
 | 6 | Settings / controls | basic screen done in part 2; the Hidden apps card (face setup / test / learn / forget) added 2026-10-19 |
 | 7 | Retire Morse | todo |
 
@@ -52,7 +52,7 @@ Plan and decisions: [PLAN.md](PLAN.md). Built in checkpointed parts; each ends b
 
 ## Part 5 notes (the vault)
 - Built 2026-10-19 in three commits (face engine; flow + screen + grid + re-hiding; settings rows), unit tests for the
-  flow (VaultFlowTest). NOT yet run on the phone: Dheer's turn, steps below.
+  flow (VaultFlowTest). Tested on the phone 2026-10-22, see below.
 - Hide = Shizuku `pm disable-user --user 0`, restore = `pm enable --user 0` (vault/Hider.kt); the outcome is checked
   against the package manager's own state, not pm's words. Only user-installed apps can be hidden (never system apps,
   Notch or Shizuku). The app's name and icon are saved at hide time (vault/<pkg>.png), so the grid never has to ask
@@ -73,22 +73,28 @@ Plan and decisions: [PLAN.md](PLAN.md). Built in checkpointed parts; each ends b
   knock also closes an open music card or quick panel.
 - Face learning (near misses after a PIN, new looks after an unlock) is on by default; the switch is in settings.
 
-### Before testing the vault on the phone
-1. `adb install -r` (keeps the accessibility switch). Shizuku running, Notch allowed in it.
-2. Notch → Hidden apps → "Set up your face" (asks for the camera). Morse's face does NOT carry over: Notch has its own
-   key and file. Then "Test face unlock".
-3. Hide a throwaway app first (Ledger Demo): knock 4× → face → "+" → pick it. Check it's gone from the launcher.
-4. Knock again → tap it in the grid → it opens. Press Home → `adb logcat -s NotchVault NotchFace` should say
-   "hid … again (left for …)" and the icon should be gone again.
-5. Fails: cover the camera through 2 tries → the dim face stays; tap elsewhere → gone. Again, then 3 taps on it →
-   one try → the PIN pad.
+### Tested 2026-10-22 (Dheer, OnePlus 7)
+- Face setup from settings: camera permission asked, 17 prints, pass mark 77%.
+- Knock with the phone held up: models warm on the 3rd tap, first read ~1 s after the 4th, match 94% / real 100%
+  → UNLOCKED about 2 s after the knock; the sheet came up over the launcher.
+- Fail path, phone flat on the desk (camera sees the ceiling): two 8 s tries, red shake, the dim face held on the
+  island; a tap elsewhere cleared it; held again → 3 taps on it → one more try → the OnePlus PIN pad opened by
+  itself; Dheer's PIN → the sheet.
+- "+" → picker (user apps, A–Z, icons) → Ledger Demo: disabled on the spot (enabled=3), gone from the launcher's row
+  at once, icon + name cached in no_backup/vault/.
+- Tap it in the sheet: restored (enabled=1), opened, marked exposed; Home → "hid … again (left for com.android.launcher)"
+  within a second, exposed cleared.
+- Hold → "Unhide Ledger Demo?" → Unhide: enabled again, out of the store, icon back in the launcher.
+- Starting VaultActivity from the island's service works (same exemption as the quick panel's tiles).
+- Note: a screencap of the PIN pad is blank (secure window) — normal.
 
 ### Untested / to watch
-- VaultActivity is started from the island's service, like the quick panel's Camera and Timer tiles (which work).
-- Whether OxygenOS's launcher drops the icon at once after `pm disable-user` (it did for Ledger Demo on 10-16).
 - Screen off counts as leaving (the app is hidden again, and stopped). Dheer's call if that's too eager.
+- Re-hiding after a Shizuku outage (the "exposed" list surviving a reboot) and the 15 s never-came-to-the-front grace.
 - The sheet's height with many hidden apps (grid capped at 380 dp, scrolls). The APK is 236 MB: two ABIs plus 110 MB
   of models; armeabi-v7a could be dropped (the OnePlus 7 is arm64).
+- Shizuku over adb on this phone: run the starter binary directly (`$(pm path …)/lib/arm64/libshizuku.so` as a
+  command, not through `sh`); then `adb install -r` Notch so its fresh process gets the binder.
 
 ### Phone notes that still apply
 - NEVER `am force-stop com.meetdheeran.notch`: Android then removes Notch from the enabled accessibility services and
