@@ -50,6 +50,30 @@ Plan and decisions: [PLAN.md](PLAN.md). Built in checkpointed parts; each ends b
   Home is back on the OnePlus launcher, so Morse's HomeEntry alias is disabled.
 - adb output ends lines with a carriage return: pipe through `tr -d '\r'` before `grep -x`.
 
+## No-Shizuku direction (started 2026-10-23)
+Why: Dheer's friends (and he) couldn't get Shizuku working — "they don't even know what it is". Goal: Notch usable
+with no Shizuku.
+
+- **Part 1 done (commit e32f0e6):** Shizuku is no longer in the mandatory "Set up" card. The island, music, extras,
+  quick panel all work with zero Shizuku; the Wi-Fi/Bluetooth tiles already fall back to the system panel without it.
+  Only hidden apps still used Shizuku, and the card never cleared until Shizuku was ready — that was the wall people hit.
+- **Hidden apps without Shizuku — route chosen: LOCK, not hide.** The work-profile route (Shelter/Island style,
+  `setApplicationHidden` from a profile owner) was rejected: multiple reports that work-profile *provisioning fails on
+  OnePlus + Android 12* (both Shelter and Island), which is exactly this phone (OnePlus 7, OxygenOS 12.1). Not worth
+  building something that may not provision, and it's confusing even when it works (per-app re-login, briefcase badges).
+- **Lock = leave the app on the launcher, gate it behind the face when it comes to the front.** Needs only the
+  accessibility switch Notch already has (no Shizuku, nothing to restart after reboot). Trade-off vs the Shizuku vault:
+  the icon stays visible and notifications still arrive (could later suppress those via the notification listener).
+  The Shizuku hide vault (Part 5) stays in the tree and still works for anyone who does set up Shizuku.
+- **Built so far (commit 64fbe9f):** `lock/LockPolicy.kt` — pure decision logic (GATE / ALLOW / IGNORE), grace window
+  optional (default 0 = relock as soon as you leave), the gate + system dialogs don't count as "leaving". 11 unit
+  tests pass. NOT yet wired in.
+- **Next (needs the phone):** `AppLock` engine watching `NotchAccessibility.foreground` → launch VaultActivity in a
+  new GATE mode (reuse FaceCheck + PinLock) → on pass let it through, on fail/cancel `performGlobalAction(HOME)`.
+  NotchAccessibility needs a HOME action. Then a locked-apps management UI (reuse the sheet + AppPicker, relabelled).
+  Test on Ledger Demo: lock it, open it (face), leave and return (gated again), fail → Home. Watch OxygenOS's freezer
+  and the launch-from-service timing.
+
 ## Part 5 notes (the vault)
 - Built 2026-10-19 in three commits (face engine; flow + screen + grid + re-hiding; settings rows), unit tests for the
   flow (VaultFlowTest). Tested on the phone 2026-10-22, see below.
