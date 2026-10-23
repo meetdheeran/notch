@@ -135,7 +135,10 @@ class MainActivity : ComponentActivity() {
             )
             Spacer(Modifier.height(24.dp))
 
-            if (!overlay || !listener || !access || shizuku != ShizukuState.READY) {
+            // Only what the island itself needs is a setup step. Shizuku is optional — the Wi-Fi tile falls back to
+            // the system panel without it, and hidden apps have their own setup in their card — so it is never listed
+            // here (people without Shizuku were getting stuck on a step they didn't need).
+            if (!overlay || !listener || !access) {
                 Header("Set up")
                 Card {
                     if (!access) Step(
@@ -145,14 +148,6 @@ class MainActivity : ComponentActivity() {
                     if (!listener) Step("See music, calls and timers", "Notification access → Notch → Allow") {
                         open(Intent(AndroidSettings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                     }
-                    if (shizuku != ShizukuState.READY) Step(
-                        "Allow Notch in Shizuku",
-                        when (shizuku) {
-                            ShizukuState.NOT_INSTALLED -> "Install Shizuku first. Needed for the Wi-Fi tile and hidden apps."
-                            ShizukuState.NOT_RUNNING -> "Start Shizuku (it stops after every reboot). Needed for the Wi-Fi tile and hidden apps."
-                            else -> "Tap, then Allow. Needed for the Wi-Fi tile and hidden apps."
-                        },
-                    ) { ShizukuBridge.requestPermission() }
                     if (!overlay) Step("Display over other apps", "Needed for the floating island when it isn't in the notch") {
                         open(Intent(AndroidSettings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
                     }
